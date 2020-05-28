@@ -1,0 +1,39 @@
+agent:                  ## Agent config
+  name: "Agentv1"
+  explore_start: 1.0        # Starting value of exploration
+  explore_stop: 0.01        # Last value of exploration
+  decay_rate: 1.0e-04       # Exploration with exponential decaying f(s) = stop+e^(-x*s)*(start-stop); -ln(stop)/x = s / f(s) = 2*stop
+  history_window: Null      # Length of the window history
+  memory:                 ## Memory config
+    name: "Memoryv1"
+    size: 1000000               # Max length of the queue used
+  network:
+    name: "DQNv1"             # Network name (class)
+    batch_size: 20            # Num of samples to train in every step
+    learning_rate: 1.0e-3     # Learning rate (default 1.0e-3)
+    gamma: 0.95               # Discount rate (default 0.99)
+monitor:
+  name: "MonitorV1"
+  early_stop: 200             # Early stop stops the algorithm when has <early_stop> episodes without any improvement in the development dataset.
+environment:             ## Environment config
+  name: "CartPole-v1"
+  training:
+    year: 1                 # Year to start
+    days: 365               # Length of the window history
+    max_steps: 8760         # When environment ends
+  development:
+    year: 2                 # Year to start
+    days: 365               # Length of the window history
+    max_steps: 8760         # When environment ends
+  test:
+    year: 3                 # Year to start
+    days: 365               # Length of the window history
+    max_steps: 8760         # When environment ends
+resources:
+  rl_model:
+    input: "resources/input_data"
+    output: "resources/output_data"
+  mlp_model:
+    input: "resources/input_expert"
+  training:
+    results: "resources/training"
