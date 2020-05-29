@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.2] - 2020-05-29
 ### Added
- - Dependencies in setup.py
+ - Requirements in setup.py
  - Changelog
 
 ## [0.0.1] - 2020-05-28
