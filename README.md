@@ -1,11 +1,16 @@
 # drling
 Deep reinforcement learning algorithms for Researchers LearnING
 
-Version 0.0.1 and in crescendo
+Version 0.0.2 and in crescendo
 
-### Usage (develop)
+### Installation (develop mode)
 ```bash
 virtualenv venv --python=python3.7      # Also works for python3.6
 source venv/bin/activate                # venv/Scripts/activate for Windows
-python setup.py develop                 # Install dependencies and 
+python setup.py develop                 # Install requirements and scripts into virtualenv
+```
+
+### Usage
+```
+drling_pole.py -h
 ```
