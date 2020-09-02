@@ -15,6 +15,10 @@ with open('requirements.txt') as f:
 setup(
     name="drling",
     version="0.0.3",
+    description="Deep reinforcement learning algorithms for Researcher's LearnING",
     scripts=glob.glob("scripts/drling_*.py"),
-    install_requires=install_requires
+    author_email="david.dominguez@iit.comillas.edu",
+    url="https://github.com/DavidDB33/drling",
+    install_requires=install_requires,
+    packages=["drling"],
 )

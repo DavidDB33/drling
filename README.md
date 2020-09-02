@@ -1,5 +1,5 @@
 # drling
-Deep reinforcement learning algorithms for Researchers LearnING
+Deep reinforcement learning algorithms for Researcher's LearnING
 
 Version 0.0.3 (alpha)
 
