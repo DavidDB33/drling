@@ -120,7 +120,7 @@ class Agentv1():
                 self.model.build(belief_nn.shape)
             self.model.load_weights(path)
         except OSError as e:
-            print("Model not initialized. OSError skipped", file=sys.stder)
+            print("Model not initialized. OSError skipped", file=sys.stderr)
             if not skip_OSError:
                 raise e
 
