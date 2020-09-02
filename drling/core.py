@@ -1,9 +1,15 @@
-import copy
 import sys
+import os
+import copy
 import datetime
 import json
 import os.path
 import statistics as stt
+from collections import deque
+from functools import reduce, partial
+from operator import mul
+import gym
+prod = partial(reduce, mul)
 try:
     import matplotlib.pyplot as plt
 except:
@@ -11,10 +17,10 @@ except:
     pass
 import numpy as np
 import pandas as pd
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
-from collections import deque
 import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -34,11 +40,11 @@ class DQNv1(Model):
     def __init__(self, action_space, observation_space, config):
         super(DQNv1, self).__init__()
         self.action_space = action_space
-        self.window_size = (config.agent.history_window if hasattr(config.agent, "history_window") and config.agent.history_window is not None else 1,)
+        self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = observation_space.shape + self.window_size
-        self.n_output = action_space.n
+        self.n_output = action_space.shape and prod(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.MeanSquaredError()
-        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config.agent.network.learning_rate)# 0.001)
+        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])# 0.001)
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self._make(config)
@@ -80,28 +86,53 @@ class DQNv2(DQNv1):
 
 class Agentv1():
     def __init__(self, model, memory, config):
-        nn = model
-        self.action_space = nn.action_space
+        self.action_space = model.action_space
         self.alpha = .1 # UNUSED
-        self.gamma = config.agent.network.gamma
+        self.gamma = config['agent']['network']['gamma']
         self.step = 0
-        self.explore_start = config.agent.explore_start
-        self.explore_stop = config.agent.explore_stop
-        self.decay_rate = config.agent.decay_rate
-        self.batch_size = config.agent.network.batch_size
-        self.history_window = config.agent.history_window if hasattr(config.agent, 'history_window') and config.agent.history_window is not None else 1
+        self.explore_start = config['agent']['explore_start']
+        self.explore_stop = config['agent']['explore_stop']
+        self.decay_rate = config['agent']['decay_rate']
+        self.batch_size = config['agent']['network']['batch_size']
+        self.history_window = config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1
         self.config = config
-        self.nn = nn
+        self.model = model
         self.memory = memory
-        self.act = lambda x: tf.argmax(x, axis=-1)
-        self.qvalue = lambda a, x: tf.reduce_sum(x*tf.one_hot(a, nn.n_output), axis=-1)
+        self.qvalue = lambda a, x: tf.reduce_sum(x*tf.one_hot(a, model.n_output), axis=-1)
         self.max_qvalue = lambda x: tf.reduce_max(x, axis=-1)
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
 
+    @property
+    def n_obs(self):
+        return self._n_obs
+
+    @n_obs.setter
+    def n_obs(self, value):
+        self._n_obs = value.shape and prod(value.shape) or value.n
+
+    def load_weights(self, path, skip_OSError=False):
+        try:
+            if not self.model.built:
+                belief = self.guess()
+                belief_nn = np.expand_dims(belief, axis=0)
+                self.model.build(belief_nn.shape)
+            self.model.load_weights(path)
+        except OSError as e:
+            print("Model not initialized. OSError skipped", file=sys.stder)
+            if not skip_OSError:
+                raise e
+
+    def act(self, x):
+        act = tf.argmax(x, axis=-1)
+        if isinstance(self.action_space, gym.spaces.MultiDiscrete):
+            return np.unravel_index(act, self.action_space.nvec)
+        else:
+            return act
+
     def call(self, obs):
-        return self.nn(tf.convert_to_tensor(obs, dtype=tf.float32))
+        return self.model(tf.convert_to_tensor(obs, dtype=tf.float32))
 
     def explore(self, increment=False):
         """
@@ -136,8 +167,6 @@ class Agentv1():
 
     def sample(self):
         action = self.action_space.sample()
-        if hasattr(self.action_space, "nvec"):
-            action = np.ravel_multi_index(action, self.action_space.nvec)
         return action
 
     def train_step(self):
@@ -150,8 +179,8 @@ class Agentv1():
         next_hstate_tensor = tf.convert_to_tensor(next_hstate_list, dtype=tf.float32)
         done_tensor = tf.convert_to_tensor(done_list, dtype=tf.float32)
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
-        loss = self.nn.train_loss.result().numpy()
-        self.nn.train_loss.reset_states()
+        loss = self.model.train_loss.result().numpy()
+        self.model.train_loss.reset_states()
         return loss
 
     @tf.function
@@ -163,19 +192,19 @@ class Agentv1():
         """
         new_expected_rewards = rewards + (1-done_list)*self.gamma*self.max_qvalue(self(next_obs)) # r+γ*max_a[q(s',a')]
         with tf.GradientTape() as tape:
-            expected_rewards = self.qvalue(actions, self.nn(obs)) # q(s,a)
+            expected_rewards = self.qvalue(actions, self.model(obs)) # q(s,a)
             # q_value = expected_rewards - self.alpha*(expected_rewards - new_expected_rewards)
-            loss = self.nn.loss_object(new_expected_rewards, expected_rewards)
-            # loss = self.nn.loss_object(q_value, expected_rewards) # , new_expected_rewards, expected_rewards)
-        gradients = tape.gradient(loss, self.nn.trainable_variables)
-        self.nn.optimizer.apply_gradients(zip(gradients, self.nn.trainable_variables))
-        self.nn.train_loss(loss)
+            loss = self.model.loss_object(new_expected_rewards, expected_rewards)
+            # loss = self.model.loss_object(q_value, expected_rewards) # , new_expected_rewards, expected_rewards)
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+        self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        self.model.train_loss(loss)
 
 class Agentv2(Agentv1):
     def guess(self, obs = None, hstate = None):
         if obs is None:
-            return np.zeros((self.history_window, 5))
-        hstate = np.roll(np.array(hstate), -1)
+            return np.zeros((self.history_window, self._n_obs))
+        hstate = np.roll(np.array(hstate), -1, axis=0)
         hstate[-1, ...] = obs
         return np.array(hstate)
 
@@ -188,9 +217,9 @@ class Monitorv1():
         self.developer_data = []
         self._done = False
         self.dt = datetime.datetime.now()
-        suffix = "_w{:02}".format(config.agent.history_window) if hasattr(config.agent, 'history_window') and config.agent.history_window is not None else ""
-        self.training_path = os.path.join(config.resources.training.results, self.dt.isoformat(timespec='seconds') + suffix)
-        self.running_path = os.path.join(config.resources.rl_model.output, self.dt.isoformat(timespec='seconds') + suffix)
+        suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
+        self.training_path = os.path.join(config['resources']['training']['results'], self.dt.isoformat(timespec='seconds') + suffix)
+        self.running_path = os.path.join(config['resources']['rl_model']['output'], self.dt.isoformat(timespec='seconds') + suffix)
         self.epoch = 0
         self.early_stop = 0
         self.best_reward = None
@@ -217,29 +246,37 @@ class Monitorv1():
         ### Training
         obs_list, action_list, reward_list, loss_list = training_results
 
-
         template = "Training: epoch #{} total reward {}, mean loss {}"
         print(template.format(self.epoch, sum(reward_list), stt.mean(loss_list)))
 
         ### Developing
-        obs_list_dev, action_list_dev, reward_list_dev = developing_results
+        obs_dev_list, action_dev_list, reward_dev_list = developing_results
         template_dev = "Developing: epoch #{} total reward {}"
-        print(template_dev.format(self.epoch, sum(reward_list_dev)))
+        print(template_dev.format(self.epoch, sum(reward_dev_list)))
 
         ### Write results
-        action_np, reward_np, loss_np = [np.expand_dims(x, axis=-1) for x in (action_list, reward_list, loss_list)]
-        action_dev_np, reward_dev_np = [np.expand_dims(x, axis=-1) for x in (action_list_dev, reward_list_dev)]
-        train_data = np.concatenate([obs_list, action_np, reward_np, loss_np], axis=-1)
-        dev_data = np.concatenate([obs_list_dev, action_dev_np, reward_dev_np], axis=-1)
-        train_columns = ["obs_%i"%i for i in range(np.array(obs_list).shape[-1])] + ["action", "reward", "loss"]
-        dev_columns = ["obs_dev_%i"%i for i in range(np.array(obs_list).shape[-1])] + ["action_dev", "reward_dev"]
+        obs_np = np.array(obs_list)
+        obs_dev_np = np.array(obs_dev_list)
+        action_np = np.array(action_list).reshape((obs_np.shape[0],-1))
+        action_dev_np = np.array(action_dev_list).reshape((obs_np.shape[0],-1))
+        reward_np = np.expand_dims(reward_list, axis=-1)
+        loss_np = np.expand_dims(loss_list, axis=-1)
+        reward_dev_np = np.expand_dims(reward_dev_list, axis=-1)
+        train_data = np.concatenate([obs_np, action_np, reward_np, loss_np], axis=-1)
+        dev_data = np.concatenate([obs_dev_np, action_dev_np, reward_dev_np], axis=-1)
+        obs_columns = ["obs_%i"%i for i in range(np.array(obs_list).shape[-1])]
+        obs_dev_columns = ["obs_dev_%i"%i for i in range(np.array(obs_list).shape[-1])]
+        action_columns = ["act_%i"%i for i in range(action_np.shape[-1])]
+        action_dev_columns = ["act_dev_%i"%i for i in range(action_np.shape[-1])]
+        train_columns = obs_columns + action_columns + ["reward", "loss"]
+        dev_columns = obs_dev_columns + action_dev_columns + ["reward_dev"]
         df_train = pd.DataFrame(data=train_data, columns=train_columns)
         df_dev = pd.DataFrame(data=dev_data, columns=dev_columns)
         df_train.to_csv(os.path.join(self.training_path, "epoch%04d.train.csv"%self.epoch))
         df_dev.to_csv(os.path.join(self.training_path, "epoch%04d.dev.csv"%self.epoch))
 
         ### Early stop
-        new_best_reward = sum(reward_list_dev)
+        new_best_reward = sum(reward_dev_list)
         if self.best_reward is None:
             self.best_reward = new_best_reward
         self._improved = self.best_reward <= new_best_reward
@@ -248,13 +285,16 @@ class Monitorv1():
             self.early_stop = 0
         else:
             self.early_stop += 1
-        self._done = self.early_stop >= self.config.monitor.early_stop
+        self._done = self.early_stop >= self.config['monitor']['early_stop']
 
     def running(self, results):
         obs_list, action_list, reward_list = results
-        action_np, reward_np = [np.expand_dims(x, axis=-1) for x in (action_list, reward_list)]
-        data = np.concatenate([obs_list, action_np, reward_np], axis=-1)
-        columns = ["obs_%i"%i for i in range(np.array(obs_list).shape[-1])] + ["action", "reward"]
+        obs_np = np.array(obs_list)
+        action_np, reward_np = np.array(action_list).reshape((obs_np.shape[0],-1)), np.expand_dims(reward_list, axis=-1)
+        data = np.concatenate([obs_np, action_np, reward_np], axis=-1)
+        obs_columns = ["obs_%i"%i for i in range(obs_np.shape[-1])]
+        action_columns = ["act_%i"%i for i in range(action_np.shape[-1])]
+        columns = obs_columns + action_columns + ["reward"]
         df = pd.DataFrame(data=data, columns=columns)
         os.makedirs(self.running_path, exist_ok=True)
         df.to_csv(os.path.join(self.running_path, "results.csv"))
@@ -266,7 +306,7 @@ class Monitorv1():
         print(f"Reward: {reward}")
         print(f"Rewards: {rew1} - {rew2} - {rew3}")
     
-    def debug(self, env, agent):
+    def debug(self, agent):
         print("\tExploration: %f"%agent.explore())
 
     def plot(self, results):
@@ -281,7 +321,7 @@ class Monitorv1():
         p = self.plot_epoch
         plt.plot([p, p+1], [self.last_reward, new_reward], color='b')
         plt.show()
-        plt.pause(0.001)
+        plt.pause(0.00001)
         self.plot_epoch += 1
         self.last_reward = new_reward
 
