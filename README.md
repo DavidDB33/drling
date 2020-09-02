@@ -1,7 +1,7 @@
 # drling
 Deep reinforcement learning algorithms for Researchers LearnING
 
-Version 0.0.2 and in crescendo
+Version 0.0.3 (alpha)
 
 ### Installation (develop mode)
 ```bash
