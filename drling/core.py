@@ -218,8 +218,8 @@ class Monitorv1():
         self._done = False
         self.dt = datetime.datetime.now()
         suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
-        self.training_path = os.path.join(config['resources']['training']['results'], self.dt.isoformat(timespec='seconds') + suffix)
-        self.running_path = os.path.join(config['resources']['rl_model']['output'], self.dt.isoformat(timespec='seconds') + suffix)
+        self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
+        self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         self.epoch = 0
         self.early_stop = 0
         self.best_reward = None
