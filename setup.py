@@ -14,7 +14,7 @@ with open('requirements.txt') as f:
 
 setup(
     name="drling",
-    version="0.0.3",
+    version="0.0.4",
     description="Deep reinforcement learning algorithms for Researcher's LearnING",
     scripts=glob.glob("scripts/drling_*.py"),
     author_email="david.dominguez@iit.comillas.edu",
