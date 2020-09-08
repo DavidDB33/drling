@@ -6,10 +6,7 @@ import json
 import os.path
 import statistics as stt
 from collections import deque
-from functools import reduce, partial
-from operator import mul
 import gym
-prod = partial(reduce, mul)
 try:
     import matplotlib.pyplot as plt
 except:
@@ -37,12 +34,12 @@ class Memoryv1():
         return [self.buffer[ii] for ii in idx]
 
 class DQNv1(Model):
-    def __init__(self, action_space, observation_space, config):
+    def __init__(self, observation_space, action_space, config):
         super(DQNv1, self).__init__()
         self.action_space = action_space
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = observation_space.shape + self.window_size
-        self.n_output = action_space.shape and prod(action_space.nvec) or action_space.n
+        self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.MeanSquaredError()
         self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])# 0.001)
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -134,7 +131,7 @@ class Agentv1():
 
     @n_obs.setter
     def n_obs(self, value):
-        self._n_obs = value.shape and prod(value.shape) or value.n
+        self._n_obs = value.shape and np.product(value.shape) or value.n
 
     def load_weights(self, path, skip_OSError=False):
         try:

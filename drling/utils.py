@@ -59,11 +59,12 @@ def _get_file_config(path = None):
     with open(config_file, "r") as f:
         file_config_dict = yaml.safe_load(f)
     if __debug__:
-        print("========== CONFIG ==========", file=sys.stderr)
-        print(f"path: {os.path.abspath(config_file)}", file=sys.stderr)
-        print("------- CONFIG ==========", file=sys.stderr)
-        print("  "+"\n  ".join(yaml.dump(file_config_dict).strip().split('\n')), file=sys.stderr)
-        print("============================", file=sys.stderr)
+        pass
+        # print("========== CONFIG ==========", file=sys.stderr)
+        # print(f"path: {os.path.abspath(config_file)}", file=sys.stderr)
+        # print("------- CONFIG ==========", file=sys.stderr)
+        # print("  "+"\n  ".join(yaml.dump(file_config_dict).strip().split('\n')), file=sys.stderr)
+        # print("============================", file=sys.stderr)
     _config_file = file_config_dict
     return copy.deepcopy(_config_file)
 
@@ -81,8 +82,10 @@ def get_config(path = None):
     if _config is not None:
         return copy.deepcopy(_config)
     _config_file = _get_file_config(path)
-    args, _ = _parser.parse_known_args()
-    _config = _update_config(_config_file, args)
+    if _parser is not None:
+        args, _ = _parser.parse_known_args()
+        _config_file = _update_config(_config_file, args)
+    _config = _config_file
     return copy.deepcopy(_config)
     
 def get_agent(label, model, memory=None, config=None):
@@ -107,7 +110,7 @@ class LabelError(KeyError):
 def get_model(label, observation_space, action_space, config):
     DQN_class = {"DQNv1": DQNv1, "DQNv2": DQNv2}
     try:
-        model = DQN_class[label](action_space, observation_space, config)
+        model = DQN_class[label](observation_space, action_space, config)
     except KeyError as e:
         raise (LabelError("Label {} not found. Must be {}".format(e, list(DQN_class.keys()))
             ).with_traceback(sys.exc_info()[2]))
@@ -129,7 +132,7 @@ def analyze_env(env):
     template = (" = Environment info =\n"
                 "Observation space: {obs_space}\n"
                 "\ttype: {space_type}\n")
-    print(template.format(
-        obs_space=env.observation_space,
-        space_type=space_type)
-    )
+    # print(template.format(
+    #     obs_space=env.observation_space,
+    #     space_type=space_type)
+    # )
