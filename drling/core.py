@@ -65,14 +65,35 @@ class DQNv1(Model):
         x = self.d4(x)
         return x
 
+    @tf.function
+    def qvalue(self, x, a):
+        x = self(x)
+        a = tf.one_hot(a, self.n_output)
+        x = x * a
+        x = tf.reduce_sum(x, axis=-1)
+        return x
+
+    @tf.function
+    def max_qvalue(self, x):
+        x = self(x)
+        x = tf.reduce_max(x, axis=-1)
+        return x
+
+    @tf.function
+    def argmax_qvalue(self, x):
+        x = self(x)
+        x = tf.argmax(x, axis=-1)
+        return x
+        
+
 class DQNv2(DQNv1):
     def _make(self, config):
-        self.c1 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform")
-        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform")
-        self.f1 = Flatten()
-        self.d1 = Dense(50, activation='relu', kernel_initializer="he_uniform")
-        self.d2 = Dense(20, activation='relu', kernel_initializer="he_uniform")
-        self.d3 = Dense(self.n_output, activation=None, kernel_initializer="he_uniform")
+        self.c1 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="he_uniform", name="CONV_1D_1")
+        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="he_uniform", name="CONV_1D_2")
+        self.f1 = Flatten(name="FLATTEN")
+        self.d1 = Dense(50, activation='relu', kernel_initializer="he_uniform", name="DENSE_1")
+        self.d2 = Dense(20, activation='relu', kernel_initializer="he_uniform", name="DENSE_2")
+        self.d3 = Dense(self.n_output, activation=None, kernel_initializer="he_uniform", name="DENSE_3_OUTPUT")
 
     @tf.function
     def call(self, x):
@@ -84,11 +105,13 @@ class DQNv2(DQNv1):
         x = self.d3(x)
         return x
 
+
 class Agentv1():
     def __init__(self, model, memory, config):
         self.action_space = model.action_space
         self.alpha = .1 # UNUSED
         self.gamma = config['agent']['network']['gamma']
+        self.tf_gamma = tf.constant(self.gamma)
         self.step = 0
         self.explore_start = config['agent']['explore_start']
         self.explore_stop = config['agent']['explore_stop']
@@ -98,8 +121,9 @@ class Agentv1():
         self.config = config
         self.model = model
         self.memory = memory
-        self.qvalue = lambda a, x: tf.reduce_sum(x*tf.one_hot(a, model.n_output), axis=-1)
-        self.max_qvalue = lambda x: tf.reduce_max(x, axis=-1)
+        self.qvalue = model.qvalue
+        self.max_qvalue = model.max_qvalue
+        self.argmax_qvalue = model.argmax_qvalue
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
@@ -125,7 +149,7 @@ class Agentv1():
                 raise e
 
     def act(self, x):
-        act = tf.argmax(x, axis=-1)
+        act = self.argmax_qvalue(x).numpy()
         if isinstance(self.action_space, gym.spaces.MultiDiscrete):
             return np.unravel_index(act, self.action_space.nvec)
         else:
@@ -178,7 +202,13 @@ class Agentv1():
         reward_tensor = tf.convert_to_tensor(reward_list, dtype=tf.float32)
         next_hstate_tensor = tf.convert_to_tensor(next_hstate_list, dtype=tf.float32)
         done_tensor = tf.convert_to_tensor(done_list, dtype=tf.float32)
+        # logdir = 'logs/func/%s' % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        # writer = tf.summary.create_file_writer(logdir)
+        # tf.summary.trace_on(graph=True, profiler=True)
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
+        # with writer.as_default():
+        #     tf.summary.trace_export(name="model_trace", step=0, profiler_outdir=logdir)
+        # tf.summary.trace_off()
         loss = self.model.train_loss.result().numpy()
         self.model.train_loss.reset_states()
         return loss
@@ -190,9 +220,9 @@ class Agentv1():
             err = q(s,a) - r+γ*max_a[q(s',a)]
             Only compute error + SGD instead of computing moving average and then SGD
         """
-        new_expected_rewards = rewards + (1-done_list)*self.gamma*self.max_qvalue(self(next_obs)) # r+γ*max_a[q(s',a')]
+        new_expected_rewards = rewards + self.tf_gamma*self.max_qvalue(next_obs)# *(1-done_list) # r+γ*max_a[q(s',a')]
         with tf.GradientTape() as tape:
-            expected_rewards = self.qvalue(actions, self.model(obs)) # q(s,a)
+            expected_rewards = self.qvalue(obs, actions) # q(s,a)
             # q_value = expected_rewards - self.alpha*(expected_rewards - new_expected_rewards)
             loss = self.model.loss_object(new_expected_rewards, expected_rewards)
             # loss = self.model.loss_object(q_value, expected_rewards) # , new_expected_rewards, expected_rewards)
@@ -210,16 +240,18 @@ class Agentv2(Agentv1):
 
 class Monitorv1():
     def __init__(self, observation_space, action_space, config):
-        self.observation_space = observation_space
-        self.action_space = action_space
+        # self.observation_space = observation_space
+        # self.action_space = action_space
+        # self.trainer_data = []
+        # self.developer_data = []
         self.config = config
-        self.trainer_data = []
-        self.developer_data = []
         self._done = False
         self.dt = datetime.datetime.now()
         suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
         self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
+        os.makedirs(self.training_path, exist_ok=True)
+        os.makedirs(self.running_path, exist_ok=True)
         self.epoch = 0
         self.early_stop = 0
         self.best_reward = None
@@ -234,14 +266,11 @@ class Monitorv1():
         return self._done
         
     @property
-    def improved(self):
-        return self._improved
+    def has_improved(self):
+        return self._has_improved
 
     def training(self, training_results, developing_results = None):
         self.epoch += 1
-
-        os.makedirs(self.training_path, exist_ok=True)
-        os.makedirs(self.running_path, exist_ok=True)
 
         ### Training
         obs_list, action_list, reward_list, loss_list = training_results
@@ -279,8 +308,8 @@ class Monitorv1():
         new_best_reward = sum(reward_dev_list)
         if self.best_reward is None:
             self.best_reward = new_best_reward
-        self._improved = self.best_reward <= new_best_reward
-        if self._improved:
+        self._has_improved = self.best_reward <= new_best_reward
+        if self._has_improved:
             self.best_reward = new_best_reward
             self.early_stop = 0
         else:
@@ -307,7 +336,7 @@ class Monitorv1():
         print(f"Rewards: {rew1} - {rew2} - {rew3}")
     
     def debug(self, agent):
-        print("\tExploration: %f"%agent.explore())
+        print("\tDEBUG: Exploration: %f"%agent.explore())
 
     def plot(self, results):
         obs_list, action_list, reward_list = results
