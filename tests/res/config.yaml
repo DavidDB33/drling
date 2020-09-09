@@ -3,7 +3,7 @@ agent:                  ## Agent config
   explore_start: 1.0        # Starting value of exploration
   explore_stop: 0.01        # Last value of exploration
   decay_rate: 1.0e-04       # Exploration with exponential decaying f(s) = stop+e^(-x*s)*(start-stop); -ln(stop)/x = s / f(s) = 2*stop
-  history_window: Null      # Length of the window history
+  history_window: 6      # Length of the window history
   memory:                 ## Memory config
     name: "Memoryv1"
     size: 1000000               # Max length of the queue used

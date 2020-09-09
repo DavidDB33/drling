@@ -38,7 +38,7 @@ class DQNv1(Model):
         super(DQNv1, self).__init__()
         self.action_space = action_space
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
-        self.obs_shape = observation_space.shape + self.window_size
+        self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.MeanSquaredError()
         self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])# 0.001)
@@ -46,7 +46,6 @@ class DQNv1(Model):
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self._make(config)
         self.compile()
-        # self(tf.convert_to_tensor(np.expand_dims(np.zeros(self.obs_shape), 0), dtype=tf.float32))
 
     def _make(self, config):
         self.d1 = Dense(256, activation='relu', kernel_initializer="he_uniform")
@@ -71,7 +70,7 @@ class DQNv1(Model):
         return x
 
     @tf.function
-    def max_qvalue(self, x):
+    def qvalue_max(self, x):
         x = self(x)
         x = tf.reduce_max(x, axis=-1)
         return x
@@ -119,19 +118,15 @@ class Agentv1():
         self.model = model
         self.memory = memory
         self.qvalue = model.qvalue
-        self.max_qvalue = model.max_qvalue
+        self.qvalue_max = model.qvalue_max
         self.argmax_qvalue = model.argmax_qvalue
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
 
     @property
-    def n_obs(self):
-        return self._n_obs
-
-    @n_obs.setter
-    def n_obs(self, value):
-        self._n_obs = value.shape and np.product(value.shape) or value.n
+    def obs_shape(self):
+        return self.model.obs_shape
 
     def load_weights(self, path, skip_OSError=False):
         try:
@@ -217,7 +212,7 @@ class Agentv1():
             err = q(s,a) - r+γ*max_a[q(s',a)]
             Only compute error + SGD instead of computing moving average and then SGD
         """
-        new_expected_rewards = rewards + self.tf_gamma*self.max_qvalue(next_obs)# *(1-done_list) # r+γ*max_a[q(s',a')]
+        new_expected_rewards = rewards + self.tf_gamma*self.qvalue_max(next_obs)# *(1-done_list) # r+γ*max_a[q(s',a')]
         with tf.GradientTape() as tape:
             expected_rewards = self.qvalue(obs, actions) # q(s,a)
             # q_value = expected_rewards - self.alpha*(expected_rewards - new_expected_rewards)
@@ -230,8 +225,10 @@ class Agentv1():
 class Agentv2(Agentv1):
     def guess(self, obs = None, hstate = None):
         if obs is None:
-            return np.zeros((self.history_window, self._n_obs))
-        hstate = np.roll(np.array(hstate), -1, axis=0)
+            return np.zeros(self.model.obs_shape)
+        if hstate is None:
+            hstate = np.zeros(self.model.obs_shape)
+        hstate = np.roll(hstate, -1, axis=0)
         hstate[-1, ...] = obs
         return np.array(hstate)
 
