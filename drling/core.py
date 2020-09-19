@@ -5,6 +5,7 @@ import datetime
 import json
 import os.path
 import statistics as stt
+import tqdm
 from collections import deque
 import gym
 try:
@@ -23,15 +24,29 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 class Memoryv1():
-    def __init__(self, size = 100000):
-        self.buffer = deque(maxlen = size)
+    def __init__(self, max_size = 100000, min_size = 1000, seed = None):
+        self.buffer = deque(maxlen = max_size)
+        self.rng = random.Random()
+        if seed: rng.sample(seed)  # Better performance than self.rng = np.random.default_rng(seed)
+        self.min_size = min_size
+
+    def fill_memory(self, env, agent):
+        s = env.reset()
+        h = None
+        for _ in tqdm.tqdm(range(self.min_size), desc="Memory"):
+            h = agent.guess(s, h)
+            a = env.action_space.sample()
+            s, r, done, _ = env.step(a)
+            agent.add((h, a, r, s, done))
+            if done:
+                s = env.reset()
+                h = None
 
     def add(self, experience):
         self.buffer.append(experience)
 
     def sample(self, batch_size):
-        idx = np.random.choice(np.arange(len(self.buffer)), size = batch_size, replace = False)
-        return [self.buffer[ii] for ii in idx]
+        return self.rng.sample(self.buffer, batch_size)
 
 class DQNv1(Model):
     def __init__(self, observation_space, action_space, config):
