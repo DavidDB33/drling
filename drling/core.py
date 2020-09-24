@@ -50,37 +50,68 @@ class Memoryv1():
     def sample(self, batch_size):
         return self.rng.sample(self.buffer, batch_size)
 
-class DQNv1(Model):
-    def __init__(self, observation_space, action_space, config):
-        super(DQNv1, self).__init__()
+class NNv1(Model):
+    def __init__(self, n_output):
+        super().__init__()
+        self.d1 = Dense(256, activation='relu', kernel_initializer="he_uniform")
+        self.d2 = Dense(64, activation='relu', kernel_initializer="he_uniform")
+        self.d3 = Dense(16, activation='relu', kernel_initializer="he_uniform")
+        self.d4 = Dense(n_output, activation=None)
+
+    @tf.function
+    def call(self, x):
+        y = self.d1(x)
+        y = self.d2(y)
+        y = self.d3(y)
+        y = self.d4(y)
+        return y
+
+class NNv2(Model):
+    def __init__(self, n_output, **kwargs):
+        super().__init__(**kwargs)
+        self.c1 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
+        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
+        self.f1 = Flatten(name="flatten_1")
+        self.d1 = Dense(50, activation='relu', kernel_initializer="he_uniform", name="dense_1")
+        self.d2 = Dense(20, activation='relu', kernel_initializer="he_uniform", name="dense_2")
+        self.d3 = Dense(n_output, activation=None, kernel_initializer="he_uniform", name="dense_3")
+
+    @tf.function
+    def call(self, x):
+        y = self.c1(x)
+        y = self.c2(y)
+        y = self.f1(y)
+        y = self.d1(y)
+        y = self.d2(y)
+        y = self.d3(y)
+        return y
+
+class DQNv1():
+    def __init__(self, observation_space, action_space, name, config):
         self.action_space = action_space
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.MeanSquaredError()
-        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])# 0.001)
+        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
-        self._make(config)
-        self.compile()
+        self.nn = self._get_nn(self.n_output, name=name)
+        self.gamma = config['agent']['network']['gamma']
+        self.tf_gamma = tf.constant(self.gamma)
+        self.load_weights = self.nn.load_weights
+        self.save_weights = self.nn.save_weights
 
-    def _make(self, config):
-        self.d1 = Dense(256, activation='relu', kernel_initializer="he_uniform")
-        self.d2 = Dense(64, activation='relu', kernel_initializer="he_uniform")
-        self.d3 = Dense(16, activation='relu', kernel_initializer="he_uniform")
-        self.d4 = Dense(self.n_output, activation=None)
+    def _get_nn(self, n_output, name):
+        return NNv1(n_output, name=name)
 
     @tf.function
-    def call(self, x):
-        x = self.d1(x)
-        x = self.d2(x)
-        x = self.d3(x)
-        x = self.d4(x)
-        return x
+    def __call__(self, x):
+        return self.nn(x)
 
     @tf.function
     def qvalue(self, x, a):
-        x = self(x)
+        x = self.nn(x)
         a = tf.one_hot(a, self.n_output)
         x = x * a
         x = tf.reduce_sum(x, axis=-1)
@@ -88,7 +119,7 @@ class DQNv1(Model):
 
     @tf.function
     def qvalue_max(self, x):
-        x = self(x)
+        x = self.nn(x)
         x = tf.reduce_max(x, axis=-1)
         return x
 
@@ -97,34 +128,18 @@ class DQNv1(Model):
         x = self(x)
         x = tf.argmax(x, axis=-1)
         return x
-        
-
-class DQNv2(DQNv1):
-    def _make(self, config):
-        self.c1 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="he_uniform", name="CONV_1D_1")
-        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="he_uniform", name="CONV_1D_2")
-        self.f1 = Flatten(name="FLATTEN")
-        self.d1 = Dense(50, activation='relu', kernel_initializer="he_uniform", name="DENSE_1")
-        self.d2 = Dense(20, activation='relu', kernel_initializer="he_uniform", name="DENSE_2")
-        self.d3 = Dense(self.n_output, activation=None, kernel_initializer="he_uniform", name="DENSE_3_OUTPUT")
 
     @tf.function
-    def call(self, x):
-        x = self.c1(x)
-        x = self.c2(x)
-        x = self.f1(x)
-        x = self.d1(x)
-        x = self.d2(x)
-        x = self.d3(x)
-        return x
+    def qtarget(self, x, r):
+        return r + self.gamma*self.qvalue_max(x)
 
+class DQNv2(DQNv1):
+    def _get_nn(self, n_output, name):
+        return NNv2(n_output, name=name)
 
 class Agentv1():
-    def __init__(self, model, memory, config):
+    def __init__(self, model, target, memory, config):
         self.action_space = model.action_space
-        self.alpha = .1 # UNUSED
-        self.gamma = config['agent']['network']['gamma']
-        self.tf_gamma = tf.constant(self.gamma)
         self.step = 0
         self.explore_start = config['agent']['explore_start']
         self.explore_stop = config['agent']['explore_stop']
@@ -133,10 +148,8 @@ class Agentv1():
         self.history_window = config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1
         self.config = config
         self.model = model
+        self.target = target
         self.memory = memory
-        self.qvalue = model.qvalue
-        self.qvalue_max = model.qvalue_max
-        self.argmax_qvalue = model.argmax_qvalue
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
@@ -145,27 +158,31 @@ class Agentv1():
     def obs_shape(self):
         return self.model.obs_shape
 
-    def load_weights(self, path, skip_OSError=False):
+    def load_weights(self, path, load_from_path=True, skip_OSError=False):
+        if not self.model.nn.built:
+            shape_nn = (None,*self.obs_shape)
+            self.model.nn.build(shape_nn)
+            self.target.nn.build(shape_nn)
         try:
-            if not self.model.built:
-                belief = self.guess()
-                belief_nn = np.expand_dims(belief, axis=0)
-                self.model.build(belief_nn.shape)
-            self.model.load_weights(path)
+            if load_from_path:
+                self.model.load_weights(path)
         except OSError as e:
             print("Model not initialized. OSError skipped", file=sys.stderr)
             if not skip_OSError:
                 raise e
+        finally:
+            self.target.nn.set_weights(self.model.nn.get_weights())
+
 
     def act(self, x):
-        act = self.argmax_qvalue(x).numpy()
+        act = self.model.argmax_qvalue(x).numpy()
         if isinstance(self.action_space, gym.spaces.MultiDiscrete):
             return np.unravel_index(act, self.action_space.nvec)
         else:
             return act
 
     def call(self, obs):
-        return self.model(tf.convert_to_tensor(obs, dtype=tf.float32))
+        return self.model(obs)
 
     def explore(self, increment=False):
         """
@@ -189,12 +206,14 @@ class Agentv1():
     def guess(self, obs = None, hstate = None):
         return obs
 
-    def add_experience(self, obs, action, reward, next_obs, done):
-        obs = np.array(obs)
-        if obs.shape[-1] == 1:
-            obs = obs.reshape(obs.shape[:-1])
+    def _ravel_action(self, action):
         if np.array(action).size > 1:
             action = np.ravel_multi_index(action, self.action_space.nvec)
+        return action
+
+    def add_experience(self, obs, action, reward, next_obs, done):
+        obs = np.array(obs)
+        action = self._ravel_action(action)
         experience = obs, action, reward, next_obs, done
         self.memory.add(experience)
 
@@ -205,72 +224,59 @@ class Agentv1():
     def train_step(self):
         experiences = self.memory.sample(self.batch_size)
         hstate_list, action_list, reward_list, next_obs_list, done_list = list(zip(*experiences))
-        next_hstate_list = np.array([self.guess(obs, hstate) for hstate, obs in zip(hstate_list, next_obs_list)])
+        next_hstate_list = [self.guess(obs, hstate) for hstate, obs in zip(hstate_list, next_obs_list)]
         hstate_tensor = tf.convert_to_tensor(hstate_list, dtype=tf.float32)
         action_tensor = tf.convert_to_tensor(action_list, dtype=tf.int32)
         reward_tensor = tf.convert_to_tensor(reward_list, dtype=tf.float32)
         next_hstate_tensor = tf.convert_to_tensor(next_hstate_list, dtype=tf.float32)
-        done_tensor = tf.convert_to_tensor(done_list, dtype=tf.float32)
-        # logdir = 'logs/func/%s' % datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        # writer = tf.summary.create_file_writer(logdir)
-        # tf.summary.trace_on(graph=True, profiler=True)
-        self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
-        # with writer.as_default():
-        #     tf.summary.trace_export(name="model_trace", step=0, profiler_outdir=logdir)
-        # tf.summary.trace_off()
+        # self.target.nn.set_weights(self.model.nn.get_weights())
+        self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor) #, done_tensor)
         loss = self.model.train_loss.result().numpy()
         self.model.train_loss.reset_states()
         return loss
 
     @tf.function
-    def tf_train_step(self, obs, actions, rewards, next_obs, done_list):
+    def tf_train_step(self, hstate_input, action_tensor, reward_tensor, next_hstate_tensor): #, done_list):
         """
             q(s,a)_t+1 = q(s,a) - α*err
             err = q(s,a) - r+γ*max_a[q(s',a)]
             Only compute error + SGD instead of computing moving average and then SGD
         """
-        new_expected_rewards = rewards + self.tf_gamma*self.qvalue_max(next_obs)# *(1-done_list) # r+γ*max_a[q(s',a')]
+        qtarget = self.model.qtarget(next_hstate_tensor, reward_tensor) # *(1-done_list) # r+γ*max_a[q(s',a')]
+        model_variables = self.model.nn.trainable_variables
         with tf.GradientTape() as tape:
-            expected_rewards = self.qvalue(obs, actions) # q(s,a)
-            # q_value = expected_rewards - self.alpha*(expected_rewards - new_expected_rewards)
-            loss = self.model.loss_object(new_expected_rewards, expected_rewards)
-            # loss = self.model.loss_object(q_value, expected_rewards) # , new_expected_rewards, expected_rewards)
-        gradients = tape.gradient(loss, self.model.trainable_variables)
-        self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+            tape.watch(model_variables)
+            qvalue = self.model.qvalue(hstate_input, action_tensor) # q(s,a)
+            loss = self.model.loss_object(qtarget, qvalue)
+        gradients = tape.gradient(loss, model_variables)
+        self.model.optimizer.apply_gradients(zip(gradients, model_variables))
         self.model.train_loss(loss)
+        return gradients
 
 class Agentv2(Agentv1):
     def guess(self, obs = None, hstate = None):
         if obs is None:
-            return np.zeros(self.model.obs_shape)
+            return np.zeros(self.model.obs_shape, dtype=np.float32)
         if hstate is None:
-            hstate = np.zeros(self.model.obs_shape)
+            hstate = np.zeros(self.model.obs_shape, dtype=np.float32)
         hstate = np.roll(hstate, -1, axis=0)
         hstate[-1, ...] = obs
         return np.array(hstate)
 
 class Monitorv1():
     def __init__(self, observation_space, action_space, config):
-        # self.observation_space = observation_space
-        # self.action_space = action_space
-        # self.trainer_data = []
-        # self.developer_data = []
         self.config = config
         self._done = False
         self.dt = datetime.datetime.now()
         suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
         self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
-        os.makedirs(self.training_path, exist_ok=True)
-        os.makedirs(self.running_path, exist_ok=True)
         self.epoch = 0
         self.early_stop = 0
         self.best_reward = None
         self.plot_epoch = 0
         self.plot_rewards = list()
         self.plot_displayed = None
-        # os.mkdir(self.training_path)
-        # os.mkdir(self.running_path)
 
     @property
     def done(self):
@@ -281,6 +287,7 @@ class Monitorv1():
         return self._has_improved
 
     def training(self, training_results, developing_results = None):
+        os.makedirs(self.training_path, exist_ok=True)
         self.epoch += 1
 
         ### Training
@@ -328,6 +335,7 @@ class Monitorv1():
         self._done = self.early_stop >= self.config['monitor']['early_stop']
 
     def running(self, results):
+        os.makedirs(self.running_path, exist_ok=True)
         obs_list, action_list, reward_list = results
         obs_np = np.array(obs_list)
         action_np, reward_np = np.array(action_list).reshape((obs_np.shape[0],-1)), np.expand_dims(reward_list, axis=-1)

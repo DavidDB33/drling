@@ -24,28 +24,38 @@ def set_parser(parser):
 def get_parser(parser = None):
     if parser is None:
         parser = argparse.ArgumentParser(description="Drling framework")
+    parser.add_argument("-w", "--windows_size", dest="history_window", type=int, default=None)
+    parser.add_argument("-m", "--model-path", dest="model_path", type=str, default=None)
+    parser.add_argument("-c", "--config-file-path", dest="config_filename", type=str, default=None)
+    parser.add_argument("-s", "--seed", type=str, default=None)
     subparsers = parser.add_subparsers()
-    parser.add_argument("-w", type=int, dest="history_window")
-    parser.add_argument("-m", type=str, dest="running_model_path")
-    # parser.add_argument("--drling-config", type=str, dest="drling_config_path")
     train_parser = subparsers.add_parser('train', help="Train the agent")
+    train_parser.add_argument("-n", "--n-epochs", type=int, default=None)
+    train_parser.add_argument("-a", "--learning-rate", type=float, default=None, help="learning rate (α) of the ANN")
     train_parser.set_defaults(exec="train")
     run_parser = subparsers.add_parser('run', help="Run the agent")
     run_parser.set_defaults(exec="run")
     defaults = dict(
         exec="run",
-        history_window=None,
-        model_path=None,
-        config_path=None
+        seed=None,
+        learning_rate=None,
+        n_epochs=None,
     )
     parser.set_defaults(**defaults)
     return parser
 
 def _update_config(config, args):
-    if args.history_window:
-        config['agent']['history_window'] = args.history_window
-    if args.running_model_path:
-        config['resources']['running']['model_path'] = args.running_model_path
+    # import ipdb; ipdb.set_trace()
+    if args.history_window: config['agent']['history_window'] = args.history_window
+    if args.model_path: config['resources']['running']['model_path'] = args.model_path
+    if args.learning_rate: config['agent']['network']['learning_rate'] = args.learning_rate
+    if args.seed is None: args.seed = np.random.randint(2**32)
+    if isinstance(args.seed, str): args.seed = list(map(int, args.seed.strip("()").split(",")))
+    if isinstance(args.seed, int): args.seed = [args.seed, args.seed, args.seed]
+    if len(args.seed) == 1: args.seed = [args.seed[0], args.seed[0], args.seed[0]]
+    print("Seed:",args.seed)
+    config['seed'] = args.seed
+    config['max_epochs'] = args.n_epochs
     return config
 
 def _get_file_config(path = None):
@@ -88,7 +98,7 @@ def get_config(path = None):
     _config = _config_file
     return copy.deepcopy(_config)
     
-def get_agent(label, model, memory=None, config=None):
+def get_agent(label, model, target, memory=None, config=None):
     """By default, load the default config"""
     Agent_class = {"Agentv1": Agentv1, "Agentv2": Agentv2}
     if memory is None:
@@ -98,7 +108,7 @@ def get_agent(label, model, memory=None, config=None):
     if isinstance(memory, str):
         memory = get_memory(memory, config)
     try:
-        agent = Agent_class[label](model=model, memory=memory, config=config)
+        agent = Agent_class[label](model=model, target=target, memory=memory, config=config)
     except KeyError as e:
         raise (LabelError("Label {} not found. Must be {}".format(e, list(Agent_class.keys()))
             ).with_traceback(sys.exc_info()[2]))
@@ -107,19 +117,20 @@ def get_agent(label, model, memory=None, config=None):
 class LabelError(KeyError):
     pass
 
-def get_model(label, observation_space, action_space, config):
+def get_model(label, observation_space, action_space, name, config):
     DQN_class = {"DQNv1": DQNv1, "DQNv2": DQNv2}
     try:
-        model = DQN_class[label](observation_space, action_space, config)
+        model = DQN_class[label](observation_space, action_space, name=name, config=config)
     except KeyError as e:
         raise (LabelError("Label {} not found. Must be {}".format(e, list(DQN_class.keys()))
             ).with_traceback(sys.exc_info()[2]))
-    # obs = np.expand_dims(model.obs2nn(observation_space.sample()), axis = 0)
-    # model(obs)
     return model
 
 def get_memory(label, config):
-    return Memoryv1(config['agent']['memory']['size'])
+    return Memoryv1(
+        max_size=config['agent']['memory']['max_size'],
+        min_size=config['agent']['memory']['min_size'],
+        seed=config['seed'][1])
 
 def get_monitor(label, observation_space, action_space, config):
     return Monitorv1(observation_space, action_space, config)
