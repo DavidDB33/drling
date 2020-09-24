@@ -1,13 +1,16 @@
-import sys
-import os
 import copy
 import datetime
 import json
+import logging
+import os
 import os.path
+import random
 import statistics as stt
-import tqdm
+import sys
 from collections import deque
+
 import gym
+import tqdm
 try:
     import matplotlib.pyplot as plt
 except:
@@ -15,11 +18,10 @@ except:
     pass
 import numpy as np
 import pandas as pd
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # To silent Tensorflow warnings
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
-import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
