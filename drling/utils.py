@@ -5,10 +5,10 @@ import os.path
 import argparse
 import copy
 import sys
-import numpy as np
 import yaml
 import gym
 from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
+import numpy as np
 
 _config_file = None # Singleton
 _config = None # Singleton
