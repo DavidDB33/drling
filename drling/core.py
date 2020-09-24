@@ -29,7 +29,7 @@ class Memoryv1():
     def __init__(self, max_size = 100000, min_size = 1000, seed = None):
         self.buffer = deque(maxlen = max_size)
         self.rng = random.Random()
-        if seed: rng.sample(seed)  # Better performance than self.rng = np.random.default_rng(seed)
+        if seed: self.rng.seed(seed)  # Better performance than self.rng = np.random.default_rng(seed)
         self.min_size = min_size
 
     def fill_memory(self, env, agent):
