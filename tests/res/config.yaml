@@ -1,17 +1,18 @@
 agent:                  ## Agent config
-  name: "Agentv1"
+  name: "Agentv2"
   explore_start: 1.0        # Starting value of exploration
   explore_stop: 0.01        # Last value of exploration
   decay_rate: 1.0e-04       # Exploration with exponential decaying f(s) = stop+e^(-x*s)*(start-stop); -ln(stop)/x = s / f(s) = 2*stop
   history_window: 6      # Length of the window history
   memory:                 ## Memory config
     name: "Memoryv1"
-    size: 1000000               # Max length of the queue used
+    min_size: 10000           # Initial size to start to learn from
+    max_size: 1000000         # Max length of the queue used
   network:
-    name: "DQNv1"             # Network name (class)
+    name: "DQNv2"             # Network name (class)
     batch_size: 20            # Num of samples to train in every step
-    learning_rate: 1.0e-3     # Learning rate (default 1.0e-3)
-    gamma: 0.95               # Discount rate (default 0.99)
+    learning_rate: 1.0e-4     # Learning rate (default 1.0e-3)
+    gamma: 0.99               # Discount rate (default 0.99)
 monitor:
   name: "MonitorV1"
   early_stop: 200             # Early stop stops the algorithm when has <early_stop> episodes without any improvement in the development dataset.
@@ -37,3 +38,4 @@ resources:
     input: "resources/input_expert"
   training:
     results: "resources/training"
+seed: Null
