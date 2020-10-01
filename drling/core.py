@@ -39,7 +39,7 @@ class Memoryv1():
             h = agent.guess(s, h)
             a = env.action_space.sample()
             s, r, done, _ = env.step(a)
-            agent.add((h, a, r, s, done))
+            self.add((h, a, r, s, done))
             if done:
                 s = env.reset()
                 h = None
@@ -51,8 +51,8 @@ class Memoryv1():
         return self.rng.sample(self.buffer, batch_size)
 
 class NNv1(Model):
-    def __init__(self, n_output):
-        super().__init__()
+    def __init__(self, n_output, **kwargs):
+        super().__init__(**kwargs)
         self.d1 = Dense(256, activation='relu', kernel_initializer="he_uniform")
         self.d2 = Dense(64, activation='relu', kernel_initializer="he_uniform")
         self.d3 = Dense(16, activation='relu', kernel_initializer="he_uniform")
@@ -138,7 +138,7 @@ class DQNv2(DQNv1):
         return NNv2(n_output, name=name)
 
 class Agentv1():
-    def __init__(self, model, target, memory, config):
+    def __init__(self, model, memory, config):
         self.action_space = model.action_space
         self.step = 0
         self.explore_start = config['agent']['explore_start']
@@ -148,7 +148,7 @@ class Agentv1():
         self.history_window = config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1
         self.config = config
         self.model = model
-        self.target = target
+        # self.target = target
         self.memory = memory
 
     def __call__(self, *args, **kwargs):
@@ -162,7 +162,7 @@ class Agentv1():
         if not self.model.nn.built:
             shape_nn = (None,*self.obs_shape)
             self.model.nn.build(shape_nn)
-            self.target.nn.build(shape_nn)
+            # self.target.nn.build(shape_nn)
         try:
             if load_from_path:
                 self.model.load_weights(path)
@@ -171,7 +171,8 @@ class Agentv1():
             if not skip_OSError:
                 raise e
         finally:
-            self.target.nn.set_weights(self.model.nn.get_weights())
+            pass
+            # self.target.nn.set_weights(self.model.nn.get_weights())
 
 
     def act(self, x):

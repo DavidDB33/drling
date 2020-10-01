@@ -38,4 +38,4 @@ resources:
     input: "resources/input_expert"
   training:
     results: "resources/training"
-seed: Null
+seed: 42

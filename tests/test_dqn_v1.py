@@ -17,14 +17,14 @@ def _get_spaces(o, a):
 def _get_Agent2(spaces):
     obs_space, act_space = spaces
     config = drling.get_config(path=os.path.join(DIRNAME, "config.yaml"))
-    model = drling.get_model("DQNv2", obs_space, act_space, config)
+    model = drling.get_model("DQNv2", obs_space, act_space, config=config)
     agent = drling.get_agent(label="Agentv2", model=model, memory="Memoryv1")
     return agent
 
 def _get_Agent(spaces):
     obs_space, act_space = spaces
     config = drling.get_config(path=os.path.join(DIRNAME, "config.yaml"))
-    model = drling.get_model("DQNv1", obs_space, act_space, config)
+    model = drling.get_model("DQNv1", obs_space, act_space, config=config)
     agent = drling.get_agent(label="Agentv1", model=model, memory="Memoryv1")
     return agent
 
@@ -47,9 +47,9 @@ def test_agent_qvalue():
     o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
     ### Real values
     qvalues_R = agent(o).numpy()
-    qvalue1_R = agent.qvalue(o, tf.constant(1))
-    qvalue5_R = agent.qvalue(o, tf.constant(5))
-    qvalue6_R = agent.qvalue(o, tf.constant(6))
+    qvalue1_R = agent.model.qvalue(o, tf.constant(1))
+    qvalue5_R = agent.model.qvalue(o, tf.constant(5))
+    qvalue6_R = agent.model.qvalue(o, tf.constant(6))
     ### Assert
     np.testing.assert_array_almost_equal_nulp(qvalues_R, qvalues_E)
     np.testing.assert_array_almost_equal_nulp(qvalue1_R, qvalue1_E)
@@ -69,7 +69,7 @@ def test_agent_qvalue_max():
     o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
     ### Real values
     qvalues_R = agent(o).numpy()
-    qvalue_max_R = agent.qvalue_max(o)
+    qvalue_max_R = agent.model.qvalue_max(o)
     ### Assert
     np.testing.assert_array_almost_equal_nulp(qvalues_R, qvalues_E)
     np.testing.assert_array_almost_equal_nulp(qvalue_max_R, qvalue_max_E)
@@ -137,10 +137,10 @@ if __name__ == "__main__":
     spaces = obs_space, act_space = _get_spaces(5, (3,3))
     config = drling.get_config(path=os.path.join(DIRNAME, "config.yaml"))
     tf.random.set_seed(1)
-    m = drling.get_model("DQNv1", obs_space, act_space, config)
+    m = drling.get_model("DQNv1", obs_space, act_space, config=config)
     a = drling.get_agent(label="Agentv1", model=m, memory="Memoryv1")
     tf.random.set_seed(1)
-    m2 = drling.get_model("DQNv2", obs_space, act_space, config)
+    m2 = drling.get_model("DQNv2", obs_space, act_space, config=config)
     a2 = drling.get_agent(label="Agentv2", model=m2, memory="Memoryv1")
     obs_space.seed(1);
     o_list = [obs_space.sample() for _ in range(6)]

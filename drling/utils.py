@@ -1,18 +1,20 @@
 #!/usr/bin/env python
-from collections import namedtuple
-from collections.abc import Iterable
-import os.path
 import argparse
 import copy
+import os.path
+import random
 import sys
 import yaml
+from collections import namedtuple
+from collections.abc import Iterable
 import gym
-from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
 import numpy as np
+from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
 
 _config_file = None # Singleton
 _config = None # Singleton
 _parser = None # Singleton
+_seed = None # Singleton
 
 class GetAgentError(Exception):
     pass
@@ -20,6 +22,12 @@ class GetAgentError(Exception):
 def set_parser(parser):
     global _parser
     _parser = parser
+
+def get_seed():
+    global _seed
+    if _seed is None:
+        _seed = random.randint(0, 2**32-1)
+    return _seed
 
 def get_parser(parser = None):
     if parser is None:
@@ -49,11 +57,7 @@ def _update_config(config, args):
     if args.history_window: config['agent']['history_window'] = args.history_window
     if args.model_path: config['resources']['running']['model_path'] = args.model_path
     if args.learning_rate: config['agent']['network']['learning_rate'] = args.learning_rate
-    if args.seed is None: args.seed = np.random.randint(2**32)
-    if isinstance(args.seed, str): args.seed = list(map(int, args.seed.strip("()").split(",")))
-    if isinstance(args.seed, int): args.seed = [args.seed, args.seed, args.seed]
-    if len(args.seed) == 1: args.seed = [args.seed[0], args.seed[0], args.seed[0]]
-    print("Seed:",args.seed)
+    if args.seed is None: args.seed = get_seed()
     config['seed'] = args.seed
     config['max_epochs'] = args.n_epochs
     return config
@@ -98,7 +102,7 @@ def get_config(path = None):
     _config = _config_file
     return copy.deepcopy(_config)
     
-def get_agent(label, model, target, memory=None, config=None):
+def get_agent(label, model, memory=None, config=None):
     """By default, load the default config"""
     Agent_class = {"Agentv1": Agentv1, "Agentv2": Agentv2}
     if memory is None:
@@ -108,7 +112,7 @@ def get_agent(label, model, target, memory=None, config=None):
     if isinstance(memory, str):
         memory = get_memory(memory, config)
     try:
-        agent = Agent_class[label](model=model, target=target, memory=memory, config=config)
+        agent = Agent_class[label](model=model, memory=memory, config=config)
     except KeyError as e:
         raise (LabelError("Label {} not found. Must be {}".format(e, list(Agent_class.keys()))
             ).with_traceback(sys.exc_info()[2]))
@@ -117,7 +121,7 @@ def get_agent(label, model, target, memory=None, config=None):
 class LabelError(KeyError):
     pass
 
-def get_model(label, observation_space, action_space, name, config):
+def get_model(label, observation_space, action_space, name="model", config=None):
     DQN_class = {"DQNv1": DQNv1, "DQNv2": DQNv2}
     try:
         model = DQN_class[label](observation_space, action_space, name=name, config=config)
@@ -130,7 +134,7 @@ def get_memory(label, config):
     return Memoryv1(
         max_size=config['agent']['memory']['max_size'],
         min_size=config['agent']['memory']['min_size'],
-        seed=config['seed'][1])
+        seed=get_seed())
 
 def get_monitor(label, observation_space, action_space, config):
     return Monitorv1(observation_space, action_space, config)
