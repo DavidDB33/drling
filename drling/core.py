@@ -181,12 +181,6 @@ class Agentv1():
             # self.target.nn.set_weights(self.model.nn.get_weights())
 
 
-    def act(self, x):
-        if isinstance(self.action_space, gym.spaces.MultiDiscrete):
-            return np.unravel_index(act, self.action_space.nvec)
-        else:
-            return act
-
     def act(self, belief, keep_tensor=False):
         """Perform an action. 
         If keep_tensor=True then return a tensor of Tensorflow.
