@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
 import copy
+import math
 import os.path
 import random
 import sys
@@ -9,6 +10,7 @@ from collections import namedtuple
 from collections.abc import Iterable
 import gym
 import numpy as np
+import tqdm
 from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
 
 _config_file = None # Singleton
@@ -35,7 +37,7 @@ def get_parser(parser = None):
     parser.add_argument("-w", "--windows_size", dest="history_window", type=int, default=None)
     parser.add_argument("-m", "--model-path", dest="model_path", type=str, default=None)
     parser.add_argument("-c", "--config-file-path", dest="config_filename", type=str, default=None)
-    parser.add_argument("-s", "--seed", type=str, default=None)
+    parser.add_argument("-s", "--seed", type=int, default=None)
     subparsers = parser.add_subparsers()
     train_parser = subparsers.add_parser('train', help="Train the agent")
     train_parser.add_argument("-n", "--n-epochs", type=int, default=None)
@@ -62,12 +64,12 @@ def _update_config(config, args):
     config['max_epochs'] = args.n_epochs
     return config
 
-def _get_file_config(path = None):
+def get_config_from_file(path = None):
     global _config_file
     if _config_file is not None:
         return copy.deepcopy(_config_file)
     if path is None:
-        config_file = "config.yaml"
+        config_file = "agent.config.yaml"
     else:
         config_file = os.path.expanduser(path)
     with open(config_file, "r") as f:
@@ -87,18 +89,19 @@ def get_config(path = None):
 
     Program parameters have priority over the file
     Args:
-        path (str): Path to the configuration file, default: microgrid/config.yaml
+        path (str): Path to the configuration file, default: agent.config.yaml
 
     Returns:
         _config (dict): A dict with the file config updated by program params
     """
-    global _config
+    global _config, _parser
     if _config is not None:
         return copy.deepcopy(_config)
-    _config_file = _get_file_config(path)
-    if _parser is not None:
-        args, _ = _parser.parse_known_args()
-        _config_file = _update_config(_config_file, args)
+    _config_file = get_config_from_file(path)
+    if _parser is None:
+        _parser = get_parser()
+    args, _ = _parser.parse_known_args()
+    _config_file = _update_config(_config_file, args)
     _config = _config_file
     return copy.deepcopy(_config)
     
@@ -116,6 +119,11 @@ def get_agent(label, model, memory=None, config=None):
     except KeyError as e:
         raise (LabelError("Label {} not found. Must be {}".format(e, list(Agent_class.keys()))
             ).with_traceback(sys.exc_info()[2]))
+    return agent
+
+def get_agent_from_config(env, config):
+    model = get_model(label=config['agent']['network']['name'], observation_space=env.observation_space, action_space=env.action_space, config=config)
+    agent = get_agent(label=config['agent']['name'], model=model, memory=config['agent']['memory']['name'], config=config)
     return agent
 
 class LabelError(KeyError):
@@ -136,8 +144,11 @@ def get_memory(label, config):
         min_size=config['agent']['memory']['min_size'],
         seed=get_seed())
 
-def get_monitor(label, observation_space, action_space, config):
-    return Monitorv1(observation_space, action_space, config)
+def get_monitor(label, agent, env_eval, config):
+    return Monitorv1(agent, env_eval, config)
+
+def get_monitor_from_config(agent, env_eval, config):
+    return get_monitor(config['agent']['monitor']['name'], agent, env_eval=env_eval, config=config)
 
 def analyze_env(env):
     if isinstance(env.observation_space, gym.spaces.Box):
@@ -151,3 +162,32 @@ def analyze_env(env):
     #     obs_space=env.observation_space,
     #     space_type=space_type)
     # )
+
+def alpha_decreased(x, max_y=1, min_y=0.3, smoothness=0.2):
+    return min_y+math.exp(-smoothness*x)*(max_y-min_y)
+
+def train_agent(env, env_eval, config=None):
+    if config is None:
+        config = get_config()
+    agent = get_agent_from_config(env=env, config=config)
+    monitor = get_monitor_from_config(agent=agent, env_eval=env_eval, config=config)
+    epoch = 0
+    ema = 0
+    agent.fill_memory(env)
+    while not monitor.stop:
+        t = tqdm.tqdm(total=ema)
+        o = env.reset()
+        h = None
+        done = False
+        while not done:
+            h = agent.guess(o, h)
+            a = agent(h) if agent.explore(increment=True) else agent.action_space.sample()
+            new_o, r, done, info = env.step(a)
+            agent.add_experience(h, a, r, new_o, done)
+            monitor.add_loss(agent.train_step())
+            monitor.add_experience(h, a, r, new_o, done)
+            t.update()
+        t.close()
+        monitor.evalue()
+        ema = int(round(ema + alpha_decreased(epoch) * (t.n - ema)))
+        epoch += 1

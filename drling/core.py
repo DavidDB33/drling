@@ -22,8 +22,6 @@ import pandas as pd
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 class Memoryv1():
     def __init__(self, max_size = 100000, min_size = 1000, seed = None):
@@ -39,7 +37,7 @@ class Memoryv1():
             h = agent.guess(s, h)
             a = env.action_space.sample()
             s, r, done, _ = env.step(a)
-            self.add((h, a, r, s, done))
+            agent.add_experience(h, a, r, s, done)
             if done:
                 s = env.reset()
                 h = None
@@ -92,7 +90,7 @@ class DQNv1():
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
-        self.loss_object = tf.keras.losses.MeanSquaredError()
+        self.loss_object = tf.keras.losses.MeanSquaredError() # Try huber loss
         self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
@@ -148,11 +146,19 @@ class Agentv1():
         self.history_window = config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1
         self.config = config
         self.model = model
+        self.ndim = self._get_dimensions()
         # self.target = target
         self.memory = memory
 
     def __call__(self, *args, **kwargs):
-        return self.call(*args, **kwargs)
+        """Alias for self.act"""
+        return self.act(*args, **kwargs)
+
+    def _get_dimensions(self):
+        return 2
+
+    def fill_memory(self, env):
+        self.memory.fill_memory(env, self)
 
     @property
     def obs_shape(self):
@@ -176,25 +182,41 @@ class Agentv1():
 
 
     def act(self, x):
-        act = self.model.argmax_qvalue(x).numpy()
         if isinstance(self.action_space, gym.spaces.MultiDiscrete):
             return np.unravel_index(act, self.action_space.nvec)
         else:
             return act
 
-    def call(self, obs):
-        return self.model(obs)
+    def act(self, belief, keep_tensor=False):
+        """Perform an action. 
+        If keep_tensor=True then return a tensor of Tensorflow.
+        
+        Args:
+            belief (numpy.ndarray): Agent's belief of the env state given n observations (computed by agent.guess(o, h))
+
+        Return:
+            act ([numpy.array, tensorflow.tensor]): 
+        """
+        if belief.ndim < self.ndim:
+            belief = belief[None, ...]
+        if isinstance(self.action_space, gym.spaces.MultiDiscrete):
+            act = self.model.argmax_qvalue(belief)
+            act = tf.unravel_index(act, self.action_space.nvec)
+        else:
+            raise NotImplementedError("Currently only implemented for DQN")
+        if not keep_tensor:
+            act = act.numpy()
+        return act
 
     def explore(self, increment=False):
-        """
-        Exploration with Exponential Decaying:
-            Description: Compute probability of exploring
-            Formula: p(ε) = stop + (start-stop)/exp(decay*step)
-            Example values:
-                start = 1.0 (At start only explore)
-                stop = 0.1 (Minimum exploration rate)
-                decay = 1e-4
-                step starts in 0 and step++
+        """Exploration with Exponential Decaying:
+        Description: Compute probability of exploring
+        Formula: p(ε) = stop + (start-stop)/exp(decay*step)
+        Example values:
+            start = 1.0 (At start only explore)
+            stop = 0.1 (Minimum exploration rate)
+            decay = 1e-4
+            step starts in 0 and step++
         """
         explore_p = self.explore_stop + np.exp(-self.decay_rate*self.step)*(self.explore_start - self.explore_stop)
         if increment:
@@ -214,7 +236,7 @@ class Agentv1():
 
     def add_experience(self, obs, action, reward, next_obs, done):
         obs = np.array(obs)
-        action = self._ravel_action(action)
+        action = self._ravel_action(action).squeeze()
         experience = obs, action, reward, next_obs, done
         self.memory.add(experience)
 
@@ -255,6 +277,9 @@ class Agentv1():
         return gradients
 
 class Agentv2(Agentv1):
+    def _get_dimensions(self):
+        return 3
+
     def guess(self, obs = None, hstate = None):
         if obs is None:
             return np.zeros(self.model.obs_shape, dtype=np.float32)
@@ -265,23 +290,59 @@ class Agentv2(Agentv1):
         return np.array(hstate)
 
 class Monitorv1():
-    def __init__(self, observation_space, action_space, config):
+    def __init__(self, agent, env_eval, config):
         self.config = config
+        self.agent = agent
+        self.env_eval = env_eval
         self._done = False
         self.dt = datetime.datetime.now()
         suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
         self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         self.epoch = 0
-        self.early_stop = 0
+        self.early_stop_iterations = 0
+        self.early_stop_max_iterations = config['agent']['monitor']['early_stop']
         self.best_reward = None
         self.plot_epoch = 0
         self.plot_rewards = list()
         self.plot_displayed = None
+        self.experiences = list()
+        self.loss_list = list()
+        self.ema = 0
+
+    def add_experience(self, s, a, r, s_, done):
+        self.experiences.append((s, a, r, s_, done))
+
+    def add_loss(self, loss):
+        self.loss_list.append(loss)
+
+    def evalue(self):
+        print("Evaluation:")
+        print("  Loss: {}".format(np.array(self.loss_list).mean()))
+        self.ema
+        self.loss_list = list()
+        env = self.env_eval
+        agent = self.agent
+        obs = env.reset()
+        h = None
+        done = False
+        data = list()
+        while not done:
+            h = agent.guess(obs, h)
+            action = agent(h)
+            obs_next, reward, done, _ = env.step(action)
+            data.append((obs, action, reward, obs_next))
+        total_reward = sum([row[2] for row in data])
+        if self.best_reward is None or total_reward > self.best_reward:
+            self.best_model = agent.model.nn.weights.copy()
+        else:
+            self.early_stop_iterations += 1
+        print("  Reward: {}".format(total_reward))
+        return total_reward
 
     @property
-    def done(self):
-        return self._done
+    def stop(self):
+        return self.early_stop_iterations >= self.early_stop_max_iterations
         
     @property
     def has_improved(self):
