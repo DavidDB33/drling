@@ -87,6 +87,10 @@ def get_config(path = None):
         return copy.deepcopy(_config)
     _config = get_config_from_file(path)
     return copy.deepcopy(_config)
+
+def set_config(config):
+    global _config
+    _config = config
     
 def get_agent(label, model, memory=None, config=None):
     """By default, load the default config"""
