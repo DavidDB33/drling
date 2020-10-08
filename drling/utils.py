@@ -54,35 +54,23 @@ def get_parser(parser = None):
     parser.set_defaults(**defaults)
     return parser
 
-def _update_config(config, args):
-    # import ipdb; ipdb.set_trace()
-    if args.history_window: config['agent']['history_window'] = args.history_window
-    if args.model_path: config['resources']['running']['model_path'] = args.model_path
-    if args.learning_rate: config['agent']['network']['learning_rate'] = args.learning_rate
-    if args.seed is None: args.seed = get_seed()
-    config['seed'] = args.seed
-    config['max_epochs'] = args.n_epochs
+def update_config_with_args(config, args):
+    if args.history_window is not None: config['agent']['history_window'] = args.history_window
+    if args.model_path is not None: config['resources']['running']['model_path'] = args.model_path
+    if args.learning_rate is not None: config['agent']['network']['learning_rate'] = args.learning_rate
+    if args.seed is not None: config['seed'] = args.seed
+    if args.n_epochs is not None: config['max_epochs'] = args.n_epochs
     return config
 
 def get_config_from_file(path = None):
-    global _config_file
-    if _config_file is not None:
-        return copy.deepcopy(_config_file)
     if path is None:
-        config_file = "agent.config.yaml"
+        filename = "agent.config.yaml"
     else:
-        config_file = os.path.expanduser(path)
-    with open(config_file, "r") as f:
-        file_config_dict = yaml.safe_load(f)
-    if __debug__:
-        pass
-        # print("========== CONFIG ==========", file=sys.stderr)
-        # print(f"path: {os.path.abspath(config_file)}", file=sys.stderr)
-        # print("------- CONFIG ==========", file=sys.stderr)
-        # print("  "+"\n  ".join(yaml.dump(file_config_dict).strip().split('\n')), file=sys.stderr)
-        # print("============================", file=sys.stderr)
-    _config_file = file_config_dict
-    return copy.deepcopy(_config_file)
+        filename = os.path.expanduser(path)
+    with open(filename, "r") as f:
+        config = yaml.safe_load(f)
+    if 'seed' not in config or config['seed'] is None: config['seed'] = get_seed()
+    return config
 
 def get_config(path = None):
     """Returns a copy of a singleton config dict.
@@ -94,15 +82,10 @@ def get_config(path = None):
     Returns:
         _config (dict): A dict with the file config updated by program params
     """
-    global _config, _parser
+    global _config
     if _config is not None:
         return copy.deepcopy(_config)
-    _config_file = get_config_from_file(path)
-    if _parser is None:
-        _parser = get_parser()
-    args, _ = _parser.parse_known_args()
-    _config_file = _update_config(_config_file, args)
-    _config = _config_file
+    _config = get_config_from_file(path)
     return copy.deepcopy(_config)
     
 def get_agent(label, model, memory=None, config=None):
