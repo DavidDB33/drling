@@ -46,7 +46,7 @@ def test_agent_qvalue():
     agent = _get_Agent(spaces)
     o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
     ### Real values
-    qvalues_R = agent(o).numpy()
+    qvalues_R = agent.qvalues(o)
     qvalue1_R = agent.model.qvalue(o, tf.constant(1))
     qvalue5_R = agent.model.qvalue(o, tf.constant(5))
     qvalue6_R = agent.model.qvalue(o, tf.constant(6))
@@ -66,9 +66,9 @@ def test_agent_qvalue_max():
     tf.random.set_seed(1)
     spaces = obs_space, act_space = _get_spaces(5, (3,3))
     agent = _get_Agent(spaces)
-    o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
+    o = tf.constant([[0, 0.2, 0.4, 0.6, 0.8]])
     ### Real values
-    qvalues_R = agent(o).numpy()
+    qvalues_R = agent.qvalues(o)
     qvalue_max_R = agent.model.qvalue_max(o)
     ### Assert
     np.testing.assert_array_almost_equal_nulp(qvalues_R, qvalues_E)
@@ -84,9 +84,9 @@ def test_agent_act():
     tf.random.set_seed(1)
     spaces = obs_space, act_space = _get_spaces(5, (3,3))
     agent = _get_Agent(spaces)
-    o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
+    o = tf.constant([[0, 0.2, 0.4, 0.6, 0.8]])
     ### Real values
-    qvalues_R = agent(o).numpy()
+    qvalues_R = agent.qvalues(o)
     act_R = agent.act(o)
     ### Assert
     np.testing.assert_array_almost_equal_nulp(qvalues_R, qvalues_E)

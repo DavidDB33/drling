@@ -18,18 +18,6 @@ monitor:
   early_stop: 200             # Early stop stops the algorithm when has <early_stop> episodes without any improvement in the development dataset.
 environment:             ## Environment config
   name: "CartPole-v1"
-  training:
-    year: 1                 # Year to start
-    days: 365               # Length of the window history
-    max_steps: 8760         # When environment ends
-  development:
-    year: 2                 # Year to start
-    days: 365               # Length of the window history
-    max_steps: 8760         # When environment ends
-  test:
-    year: 3                 # Year to start
-    days: 365               # Length of the window history
-    max_steps: 8760         # When environment ends
 resources:
   rl_model:
     input: "resources/input_data"

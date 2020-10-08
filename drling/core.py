@@ -10,7 +10,7 @@ import sys
 from collections import deque
 
 import gym
-import tqdm
+from tqdm import autonotebook as tqdm
 try:
     import matplotlib.pyplot as plt
 except:
@@ -116,6 +116,10 @@ class DQNv1():
         return x
 
     @tf.function
+    def qvalues(self, x):
+        return self.nn(x)
+
+    @tf.function
     def qvalue_max(self, x):
         x = self.nn(x)
         x = tf.reduce_max(x, axis=-1)
@@ -202,15 +206,22 @@ class Agentv1():
             act = act.numpy()
         return act
 
+    def qvalues(self, s):
+        """Return qvalues given an state s"""
+        return self.model(s)
+
     def explore(self, increment=False):
         """Exploration with Exponential Decaying:
-        Description: Compute probability of exploring
-        Formula: p(ε) = stop + (start-stop)/exp(decay*step)
-        Example values:
-            start = 1.0 (At start only explore)
-            stop = 0.1 (Minimum exploration rate)
-            decay = 1e-4
-            step starts in 0 and step++
+        Description: Compute probability of exploring using p(ε) = stop + (start-stop)/exp(decay*step)
+        Internal Params:
+            start = 1.0 (float): At start only explore
+            stop = 0.1 (float): Minimum exploration rate
+            decay = 1e-4 (float): decay rate of probability
+            step ∈ {[0, ∞) ∩ ℕ } starts in 0 and step++
+        Args:
+            increment (bool): If true, increment self.step in 1 automatically. Default: False
+        Returns:
+            explore_p (numpy.float): Probability of exploration ∈ (stop, start]
         """
         explore_p = self.explore_stop + np.exp(-self.decay_rate*self.step)*(self.explore_start - self.explore_stop)
         if increment:
@@ -225,12 +236,12 @@ class Agentv1():
 
     def _ravel_action(self, action):
         if np.array(action).size > 1:
-            action = np.ravel_multi_index(action, self.action_space.nvec)
+            action = np.ravel_multi_index(action, self.action_space.nvec).squeeze()
         return action
 
     def add_experience(self, obs, action, reward, next_obs, done):
         obs = np.array(obs)
-        action = self._ravel_action(action).squeeze()
+        action = self._ravel_action(action)
         experience = obs, action, reward, next_obs, done
         self.memory.add(experience)
 

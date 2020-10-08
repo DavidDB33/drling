@@ -24,14 +24,15 @@ def test_fill_memory():
     env = _get_env(config)
     obs_space = env.observation_space
     act_space = env.action_space
+    print(env.action_space)
     memory1 = drling.get_memory("Memoryv1", config=config)
     model1 = drling.get_model("DQNv1", obs_space, act_space, config=config)
     agent1 = drling.get_agent(label="Agentv1", model=model1, memory=memory1)
-    memory1.fill_memory(env=env, agent=agent1)
     memory2 = drling.get_memory("Memoryv1", config=config)
     model2 = drling.get_model("DQNv2", obs_space, act_space, config=config)
     agent2 = drling.get_agent(label="Agentv2", model=model2, memory=memory2)
     memory2.fill_memory(env=env, agent=agent2)
+    memory1.fill_memory(env=env, agent=agent1)
 
 if __name__ == "__main__":
     memory, agent, env = _get_memory()

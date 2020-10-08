@@ -10,7 +10,7 @@ from collections import namedtuple
 from collections.abc import Iterable
 import gym
 import numpy as np
-import tqdm
+from tqdm import autonotebook as tqdm
 from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
 
 _config_file = None # Singleton
