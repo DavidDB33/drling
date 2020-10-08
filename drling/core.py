@@ -301,9 +301,10 @@ class Monitorv1():
         self.env_eval = env_eval
         self._done = False
         self.dt = datetime.datetime.now()
-        suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
-        self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
-        self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
+        # suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
+        # self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
+        # self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
+        self.output_path = config['output']['path']
         self.epoch = 0
         self.early_stop_iterations = 0
         self.early_stop_max_iterations = config['agent']['monitor']['early_stop']
@@ -324,8 +325,6 @@ class Monitorv1():
     def evalue(self):
         print("Evaluation:")
         print("  Loss: {}".format(np.array(self.loss_list).mean()))
-        self.ema
-        self.loss_list = list()
         env = self.env_eval
         agent = self.agent
         obs = env.reset()
@@ -338,11 +337,26 @@ class Monitorv1():
             obs_next, reward, done, _ = env.step(action)
             data.append((obs, action, reward, obs_next))
         total_reward = sum([row[2] for row in data])
+        self.epoch += 1
         if self.best_reward is None or total_reward > self.best_reward:
             self.best_model = agent.model.nn.weights.copy()
         else:
             self.early_stop_iterations += 1
         print("  Reward: {}".format(total_reward))
+        if not os.path.exists(self.output_path):
+            os.makedirs(self.output_path)
+        else:
+            print("Dir %s already created"%self.output_path)
+            print("Could you be repeating the same experiments?")
+            print("Overwritting...")
+        with open(os.path.join(self.output_path, "%03d-training.json"%self.epoch), "w") as f:
+            json.dump(self.experiences, f)
+        with open(os.path.join(self.output_path, "%03d-evaluation.json"%self.epoch), "w") as f:
+            json.dump(self.data, f)
+        with open(os.path.join(self.output_path, "%03d-loss.json"%self.epoch), "w") as f:
+            json.dump(self.loss_list, f)
+        self.loss_list = list()
+        self.experiences = list()
         return total_reward
 
     @property
