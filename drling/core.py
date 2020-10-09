@@ -350,7 +350,7 @@ class Monitorv1():
             for k, v in data_dict.items():
                 try:
                     f[k%epoch] = v
-                except RuntimeError:
+                except (OSError, RuntimeError):
                     f[k%epoch][...] = v
 
     def _save_model(self):
