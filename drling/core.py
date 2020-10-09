@@ -250,8 +250,8 @@ class Agentv1():
         return action
 
     def train_step(self):
-        experiences = self.memory.sample(self.batch_size)
-        hstate_list, action_list, reward_list, next_obs_list, done_list = list(zip(*experiences))
+        experience_list = self.memory.sample(self.batch_size)
+        hstate_list, action_list, reward_list, next_obs_list, done_list = list(zip(*experience_list))
         next_hstate_list = [self.guess(obs, hstate) for hstate, obs in zip(hstate_list, next_obs_list)]
         hstate_tensor = tf.convert_to_tensor(hstate_list, dtype=tf.float32)
         action_tensor = tf.convert_to_tensor(action_list, dtype=tf.int32)
@@ -312,12 +312,12 @@ class Monitorv1():
         self.plot_epoch = 0
         self.plot_rewards = list()
         self.plot_displayed = None
-        self.experiences = list()
+        self.experience_list = list()
         self.loss_list = list()
         self.ema = 0
 
     def add_experience(self, s, a, r, s_, done):
-        self.experiences.append((s, a, r, s_, done))
+        self.experience_list.append((s, a, r, s_, done))
 
     def add_loss(self, loss):
         self.loss_list.append(loss)
@@ -350,13 +350,13 @@ class Monitorv1():
             print("Could you be repeating the same experiments?")
             print("Overwritting...")
         with open(os.path.join(self.output_path, "%03d-training.json"%self.epoch), "w") as f:
-            json.dump(self.experiences, f)
+            json.dump(self.experience_list, f)
         with open(os.path.join(self.output_path, "%03d-evaluation.json"%self.epoch), "w") as f:
             json.dump(self.data, f)
         with open(os.path.join(self.output_path, "%03d-loss.json"%self.epoch), "w") as f:
             json.dump(self.loss_list, f)
         self.loss_list = list()
-        self.experiences = list()
+        self.experience_list = list()
         return total_reward
 
     @property
