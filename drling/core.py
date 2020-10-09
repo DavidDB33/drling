@@ -2,6 +2,7 @@ import copy
 import datetime
 import json
 import logging
+logger = logging.getLogger(__file__)
 import os
 import os.path
 import random
@@ -10,15 +11,16 @@ import sys
 from collections import deque
 
 import gym
-from tqdm import autonotebook as tqdm
+import h5py
+import numpy as np
+import pandas as pd
 try:
     import matplotlib.pyplot as plt
 except:
     print("Warning: matplotlib is not installed. You will not be able to display reward progress and can cause errors also")
     pass
-import numpy as np
-import pandas as pd
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # To silent Tensorflow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # To silent Tensorflow warnings
+from tqdm import autonotebook as tqdm
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
@@ -304,7 +306,8 @@ class Monitorv1():
         # suffix = "_w{:02}".format(config['agent']['history_window']) if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else ""
         # self.training_path = os.path.join(os.path.abspath(config['resources']['training']['results']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
         # self.running_path = os.path.join(os.path.abspath(config['resources']['rl_model']['output']), self.dt.strftime("%Y-%m-%dT%H-%M-%S") + suffix)
-        self.output_path = config['output']['path']
+        self.output_data = config['output']['data']
+        self.output_model = config['output']['model']
         self.epoch = 0
         self.early_stop_iterations = 0
         self.early_stop_max_iterations = config['agent']['monitor']['early_stop']
@@ -312,52 +315,81 @@ class Monitorv1():
         self.plot_epoch = 0
         self.plot_rewards = list()
         self.plot_displayed = None
-        self.experience_list = list()
+        self.training_data = list()
+        self.eval_data = list()
         self.loss_list = list()
         self.ema = 0
 
     def add_experience(self, s, a, r, s_, done):
-        self.experience_list.append((s, a, r, s_, done))
+        self.training_data.append((s, a, r, s_, done))
 
     def add_loss(self, loss):
         self.loss_list.append(loss)
 
+    def _save_epoch(self, epoch):
+        """Store in h5/epoch training, eval and loss data gather from self
+        Args:
+            epoch (str): Epoch that determine the new subgroup in h5
+        """
+        s_t_list, a_t_list, r_t_list, s__t_list, done_t_list = list(zip(*self.training_data))
+        s_e_list, a_e_list, r_e_list, s__e_list, done_e_list = list(zip(*self.eval_data))
+        data_dict = {
+            '%s/t/s': s_t_list,
+            '%s/t/a': a_t_list,
+            '%s/t/r': r_t_list,
+            '%s/t/s_': s__t_list,
+            '%s/t/d': done_t_list,
+            '%s/l': self.loss_list,
+            '%s/e/s': s_e_list,
+            '%s/e/a': a_e_list,
+            '%s/e/r': r_e_list,
+            '%s/e/s_': s__e_list,
+            '%s/e/d': done_e_list,
+        }
+        with h5py.File(self.output_data, "a") as f:
+            for k, v in data_dict.items():
+                try:
+                    f[k%epoch] = v
+                except RuntimeError:
+                    f[k%epoch][...] = v
+
+    def _save_model(self):
+        """Save the model of the agent in self.output_model"""
+        self.agent.model.nn.save_weights(self.output_model, save_format='h5')
+
+    def _clear_data(self):
+        """Clean all data stored from the epoch for the next train step"""
+        self.training_data = list()
+        self.eval_data = list()
+        self.loss_list = list()
+
     def evalue(self):
-        print("Evaluation:")
-        print("  Loss: {}".format(np.array(self.loss_list).mean()))
         env = self.env_eval
         agent = self.agent
         obs = env.reset()
         h = None
         done = False
-        data = list()
+        reward_list = list()
         while not done:
             h = agent.guess(obs, h)
             action = agent(h)
             obs_next, reward, done, _ = env.step(action)
-            data.append((obs, action, reward, obs_next))
-        total_reward = sum([row[2] for row in data])
-        self.epoch += 1
+            self.eval_data.append((obs, action, reward, obs_next, done))
+            reward_list.append(reward)
+        total_reward = sum(reward_list)
         if self.best_reward is None or total_reward > self.best_reward:
-            self.best_model = agent.model.nn.weights.copy()
+            self.best_reward = total_reward
+            self._save_model()
+            self.early_stop_iterations = 0
         else:
             self.early_stop_iterations += 1
-        print("  Reward: {}".format(total_reward))
-        if not os.path.exists(self.output_path):
-            os.makedirs(self.output_path)
-        else:
-            print("Dir %s already created"%self.output_path)
-            print("Could you be repeating the same experiments?")
-            print("Overwritting...")
-        with open(os.path.join(self.output_path, "%03d-training.json"%self.epoch), "w") as f:
-            json.dump(self.experience_list, f)
-        with open(os.path.join(self.output_path, "%03d-evaluation.json"%self.epoch), "w") as f:
-            json.dump(self.data, f)
-        with open(os.path.join(self.output_path, "%03d-loss.json"%self.epoch), "w") as f:
-            json.dump(self.loss_list, f)
-        self.loss_list = list()
-        self.experience_list = list()
-        return total_reward
+        print("Training summary (epoch {}):".format(self.epoch))
+        print("  Training Mean loss: {}".format(np.array(self.loss_list).mean()))
+        print("  Evaluation reward: {}".format(total_reward))
+        print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
+        self.epoch += 1
+        self._save_epoch(str(self.epoch))
+        self._clear_data()
 
     @property
     def stop(self):

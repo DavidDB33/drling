@@ -174,7 +174,9 @@ def train_agent(env, env_eval, config=None):
             monitor.add_loss(agent.train_step())
             monitor.add_experience(h, a, r, new_o, done)
             t.update()
+        n = t.n
         t.close()
         monitor.evalue()
-        ema = int(round(ema + alpha_decreased(epoch) * (t.n - ema)))
+        ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
+    print("===================== End =====================")
