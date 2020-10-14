@@ -106,7 +106,6 @@ class DQNv1():
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self.nn = self._get_nn(self.n_output, name=name)
         self.gamma = config['agent']['network']['gamma']
-        self.tf_gamma = tf.constant(self.gamma)
         self.load_weights = self.nn.load_weights
         self.save_weights = self.nn.save_weights
 
@@ -122,7 +121,14 @@ class DQNv1():
         x = self.nn(x)
         a = tf.one_hot(a, self.n_output)
         x = x * a
-        x = tf.reduce_sum(x, axis=-1)
+        x = tf.reduce_sum(x, axis=1)
+        return x
+
+    @tf.function
+    def qvalue_with_mask(self, x, mask):
+        x = self.nn(x)
+        x = tf.multiply(x, mask)
+        x = tf.reduce_sum(x, axis=1)
         return x
 
     @tf.function
@@ -132,18 +138,22 @@ class DQNv1():
     @tf.function
     def qvalue_max(self, x):
         x = self.nn(x)
-        x = tf.reduce_max(x, axis=-1)
+        x = tf.reduce_max(x, axis=1)
         return x
 
     @tf.function
     def argmax_qvalue(self, x):
-        x = self(x)
-        x = tf.argmax(x, axis=-1)
+        x = self.nn(x)
+        x = tf.argmax(x, axis=1)
         return x
 
     @tf.function
     def qtarget(self, x, r):
         return r + self.gamma*self.qvalue_max(x)
+
+    @tf.function
+    def compute_error(self, o, a, r, n_o, done):
+        return tf.keras.losses.MSE(self.qtarget(n_o, r), self.qvalue(o, a))
 
 class DQNv2(DQNv1):
     def _get_nn(self, n_output, name):
@@ -206,11 +216,16 @@ class Agentv1():
         Return:
             act ([numpy.array, tensorflow.tensor]): 
         """
+        single_input_flag = False
         if belief.ndim < self.ndim:
+            single_input_flag = True
             belief = belief[None, ...]
         if isinstance(self.action_space, gym.spaces.MultiDiscrete):
             act = self.model.argmax_qvalue(belief)
             act = tf.unravel_index(act, self.action_space.nvec)
+            act = tf.transpose(act)
+            if single_input_flag:
+                act = act[0]
         else:
             raise NotImplementedError("Currently only implemented for DQN")
         if not keep_tensor:
@@ -282,13 +297,12 @@ class Agentv1():
             Only compute error + SGD instead of computing moving average and then SGD
         """
         qtarget = self.model.qtarget(next_hstate_tensor, reward_tensor) # *(1-done_list) # r+γ*max_a[q(s',a')]
-        model_variables = self.model.nn.trainable_variables
+        mask = tf.one_hot(action_tensor, self.model.n_output)
         with tf.GradientTape() as tape:
-            tape.watch(model_variables)
-            qvalue = self.model.qvalue(hstate_input, action_tensor) # q(s,a)
+            qvalue = self.model.qvalue_with_mask(hstate_input, mask) # q(s,a)
             loss = self.model.loss_object(qtarget, qvalue)
-        gradients = tape.gradient(loss, model_variables)
-        self.model.optimizer.apply_gradients(zip(gradients, model_variables))
+        gradients = tape.gradient(loss, self.model.nn.trainable_variables)
+        self.model.optimizer.apply_gradients(zip(gradients, self.model.nn.trainable_variables))
         self.model.train_loss(loss)
         return gradients
 
@@ -373,36 +387,40 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue(self, verbose=False):
+    def evalue(self, verbose=False, dry_run=False):
         env = self.env_eval
         agent = self.agent
         obs = env.reset()
         h = None
         done = False
-        reward_list = list()
+        total_reward = 0
         steps = 0
         while not done:
             h = agent.guess(obs, h)
             action = agent(h)
             obs_next, reward, done, _ = env.step(action)
-            self.eval_data.append((obs, action, reward, obs_next, done))
-            reward_list.append(reward)
+            if not dry_run:
+                self.eval_data.append((obs, action, reward, obs_next, done))
+            total_reward += reward
             steps += 1
-        total_reward = sum(reward_list)
-        if self.best_reward is None or total_reward > self.best_reward:
-            self.best_reward = total_reward
-            self._save_model()
-            self.early_stop_iterations = 0
-        else:
-            self.early_stop_iterations += 1
+        if not dry_run:
+            if self.best_reward is None or total_reward > self.best_reward:
+                self.best_reward = total_reward
+                self._save_model()
+                self.early_stop_iterations = 0
+            else:
+                self.early_stop_iterations += 1
         if verbose:
-            print("Training summary of epoch {} ({} steps):".format(self.epoch, steps))
-            print("  Training mean loss: {}".format(np.array(self.loss_list).mean()))
+            if not dry_run:
+                print("Training summary of epoch {} ({} steps):".format(self.epoch, steps))
+                print("  Training mean (std) loss: {} ({})".format(np.array(self.loss_list).mean(), np.array(self.loss_list).std()))
             print("  Evaluation reward: {}".format(total_reward))
-            print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
-        self.epoch += 1
-        self._save_epoch(str(self.epoch))
-        self._clear_data()
+            if not dry_run:
+                print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
+        if not dry_run:
+            self.epoch += 1
+            self._save_epoch(str(self.epoch))
+            self._clear_data()
 
     @property
     def stop(self):

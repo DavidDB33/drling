@@ -31,3 +31,9 @@ def test__ravel_action():
     assert agent._ravel_action([1,1]) == 4
     assert agent._ravel_action([2,1]) == 7
     assert agent._ravel_action([2,2]) == 8
+    action_list = [i for i in range(3*3)]
+    for a in action_list:
+        assert agent._ravel_action(tf.transpose(tf.unravel_index(a, (3, 3)))) == a
+    action_list = [(i,j) for i in range(3) for j in range(3)]
+    for a in action_list:
+        np.testing.assert_array_equal(tf.transpose(tf.unravel_index(agent._ravel_action(a), (3, 3))), a)

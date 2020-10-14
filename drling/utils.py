@@ -159,6 +159,7 @@ def train_agent(env, env_eval, config=None, verbose=False):
         config = get_config()
     agent = get_agent_from_config(env=env, config=config, verbose=verbose)
     monitor = get_monitor_from_config(agent=agent, env_eval=env_eval, config=config)
+    random.seed(config['seed'])
     epoch = 0
     ema = 0
     agent.fill_memory(env)
@@ -167,9 +168,14 @@ def train_agent(env, env_eval, config=None, verbose=False):
         obs = env.reset()
         h = None
         done = False
+        step = 0
         while not done:
+            step += 1
+            # if verbose and t.n % 876 == 0:
+            #     monitor.evalue(verbose=verbose, dry_run=True)
             h = agent.guess(obs, h)
-            a = agent(h) if agent.explore(increment=True) else agent.action_space.sample()
+            exploration = random.random() < agent.explore_step()
+            a = agent(h) if not exploration else agent.action_space.sample()
             obs, r, done, info = env.step(a)
             agent.add_experience(h, a, r, obs, done)
             monitor.add_loss(agent.train_step())

@@ -34,9 +34,9 @@ def test__initialize():
 
 def test_agent_qvalue():
     ### Expected values
-    qvalues_E = np.array([[[0.7037938237190247,  0.0970928966999054,  -0.3128317892551422,
+    qvalues_E = np.array([[0.7037938237190247,  0.0970928966999054,  -0.3128317892551422,
                             0.0990651547908783, -0.36335521936416626, -0.45463865995407104,
-                            0.9741138219833374, -0.4892215132713318,   1.066206932067871]]])
+                            0.9741138219833374, -0.4892215132713318,   1.066206932067871]])
     qvalue1_E = np.array(0.0970928966999054)
     qvalue5_E = np.array(-0.45463865995407104)
     qvalue6_E = np.array(0.9741138219833374)
@@ -44,7 +44,7 @@ def test_agent_qvalue():
     tf.random.set_seed(1)
     spaces = obs_space, act_space = _get_spaces(5, (3,3))
     agent = _get_Agent(spaces)
-    o = tf.constant([[[0, 0.2, 0.4, 0.6, 0.8]]])
+    o = tf.constant([[0, 0.2, 0.4, 0.6, 0.8]])
     ### Real values
     qvalues_R = agent.qvalues(o)
     qvalue1_R = agent.model.qvalue(o, tf.constant(1))
