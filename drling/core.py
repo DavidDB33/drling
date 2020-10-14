@@ -26,16 +26,24 @@ from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
 
 class Memoryv1():
-    def __init__(self, max_size = 100000, min_size = 1000, seed = None):
+    def __init__(self, max_size=100000, min_size=1000, seed=None, verbose=False):
         self.buffer = deque(maxlen = max_size)
         self.rng = random.Random()
-        if seed: self.rng.seed(seed)  # Better performance than self.rng = np.random.default_rng(seed)
         self.min_size = min_size
+        self.min_size_iterable = self._get_min_size_iterable(min_size, verbose)
+        if seed: self.rng.seed(seed)  # Better performance than self.rng = np.random.default_rng(seed)
+
+    def _get_min_size_iterable(self, min_size, verbose):
+        if verbose:
+            iterable = tqdm.tqdm(range(self.min_size), desc="Memory")
+        else:
+            iterable = range(self.min_size)
+        return iterable
 
     def fill_memory(self, env, agent):
         s = env.reset()
         h = None
-        for _ in tqdm.tqdm(range(self.min_size), desc="Memory"):
+        for _ in self.min_size_iterable:
             h = agent.guess(s, h)
             a = env.action_space.sample()
             s, r, done, _ = env.step(a)
@@ -150,6 +158,7 @@ class Agentv1():
         self.decay_rate = config['agent']['decay_rate']
         self.batch_size = config['agent']['network']['batch_size']
         self.history_window = config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1
+        self.seed = config['seed']
         self.config = config
         self.model = model
         self.ndim = self._get_dimensions()
