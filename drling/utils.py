@@ -180,5 +180,6 @@ def train_agent(env, env_eval, config=None, verbose=False):
             t.close()
             ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
-        monitor.evalue()
-    print("===================== End =====================")
+        monitor.evalue(verbose=verbose)
+    if verbose:
+        print("===================== End =====================")

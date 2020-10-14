@@ -373,19 +373,21 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue(self):
+    def evalue(self, verbose=False):
         env = self.env_eval
         agent = self.agent
         obs = env.reset()
         h = None
         done = False
         reward_list = list()
+        steps = 0
         while not done:
             h = agent.guess(obs, h)
             action = agent(h)
             obs_next, reward, done, _ = env.step(action)
             self.eval_data.append((obs, action, reward, obs_next, done))
             reward_list.append(reward)
+            steps += 1
         total_reward = sum(reward_list)
         if self.best_reward is None or total_reward > self.best_reward:
             self.best_reward = total_reward
@@ -393,10 +395,11 @@ class Monitorv1():
             self.early_stop_iterations = 0
         else:
             self.early_stop_iterations += 1
-        print("Training summary (epoch {}):".format(self.epoch))
-        print("  Training Mean loss: {}".format(np.array(self.loss_list).mean()))
-        print("  Evaluation reward: {}".format(total_reward))
-        print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
+        if verbose:
+            print("Training summary of epoch {} ({} steps):".format(self.epoch, steps))
+            print("  Training mean loss: {}".format(np.array(self.loss_list).mean()))
+            print("  Evaluation reward: {}".format(total_reward))
+            print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
         self.epoch += 1
         self._save_epoch(str(self.epoch))
         self._clear_data()
