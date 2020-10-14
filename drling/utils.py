@@ -164,16 +164,16 @@ def train_agent(env, env_eval, config=None, verbose=False):
     agent.fill_memory(env)
     while not monitor.stop:
         if verbose: t = tqdm.tqdm(total=ema)
-        o = env.reset()
+        obs = env.reset()
         h = None
         done = False
         while not done:
-            h = agent.guess(o, h)
+            h = agent.guess(obs, h)
             a = agent(h) if agent.explore(increment=True) else agent.action_space.sample()
-            new_o, r, done, info = env.step(a)
-            agent.add_experience(h, a, r, new_o, done)
+            obs, r, done, info = env.step(a)
+            agent.add_experience(h, a, r, obs, done)
             monitor.add_loss(agent.train_step())
-            monitor.add_experience(h, a, r, new_o, done)
+            monitor.add_experience(h, a, r, obs, done)
             if verbose: t.update()
         if verbose:
             n = t.n
