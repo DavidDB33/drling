@@ -351,7 +351,8 @@ class Monitorv1():
                 try:
                     f[k%epoch] = v
                 except (OSError, RuntimeError):
-                    f[k%epoch][...] = v
+                    del f[k%epoch]
+                    f[k%epoch] = v
 
     def _save_model(self):
         """Save the model of the agent in self.output_model"""
