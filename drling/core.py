@@ -104,7 +104,7 @@ class DQNv1():
         self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.MeanSquaredError() # Try huber loss
-        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'])
+        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate']) #, clipnorm=1.0)
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self.nn = self._get_nn(self.n_output, name=name)
