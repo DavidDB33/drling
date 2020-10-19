@@ -40,17 +40,20 @@ class Memoryv1():
             iterable = range(self.min_size)
         return iterable
 
-    def fill_memory(self, env, agent):
-        s = env.reset()
-        h = None
+    def fill_memory(self, env, agent, cyclic=False):
+        o = env.reset()
+        h = np.zeros(agent.obs_shape, dtype=np.float32)
         for _ in self.min_size_iterable:
-            h = agent.guess(s, h)
+            h = agent.guess(o, h)
             a = env.action_space.sample()
-            s, r, done, _ = env.step(a)
-            agent.add_experience(h, a, r, s, done)
+            o, r, done, _ = env.step(a)
+            agent.add_experience(h, a, r, o, done)
             if done:
-                s = env.reset()
-                h = None
+                if cyclic:
+                    env.reset(o)
+                else:
+                    o = env.reset()
+                    h = np.zeros(agent.obs_shape, dtype=np.float32)
 
     def add(self, experience):
         self.buffer.append(experience)
@@ -182,8 +185,8 @@ class Agentv1():
     def _get_dimensions(self):
         return 2
 
-    def fill_memory(self, env):
-        self.memory.fill_memory(env, self)
+    def fill_memory(self, env, cyclic=False):
+        self.memory.fill_memory(env, self, cyclic=False)
 
     @property
     def obs_shape(self):
@@ -280,7 +283,7 @@ class Agentv1():
         hstate_list, action_list, reward_list, next_obs_list, done_list = list(zip(*experience_list))
         next_hstate_list = [self.guess(obs, hstate) for hstate, obs in zip(hstate_list, next_obs_list)]
         hstate_tensor = tf.convert_to_tensor(hstate_list, dtype=tf.float32)
-        action_tensor = tf.convert_to_tensor(action_list, dtype=tf.int32)
+        action_tensor = tf.squeeze(tf.convert_to_tensor(action_list, dtype=tf.int32))
         reward_tensor = tf.convert_to_tensor(reward_list, dtype=tf.float32)
         next_hstate_tensor = tf.convert_to_tensor(next_hstate_list, dtype=tf.float32)
         # self.target.nn.set_weights(self.model.nn.get_weights())
@@ -290,7 +293,7 @@ class Agentv1():
         return loss
 
     @tf.function
-    def tf_train_step(self, hstate_input, action_tensor, reward_tensor, next_hstate_tensor): #, done_list):
+    def tf_train_step(self, hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor): #, done_list):
         """
             q(s,a)_t+1 = q(s,a) - α*err
             err = q(s,a) - r+γ*max_a[q(s',a)]
@@ -299,7 +302,8 @@ class Agentv1():
         qtarget = self.model.qtarget(next_hstate_tensor, reward_tensor) # *(1-done_list) # r+γ*max_a[q(s',a')]
         mask = tf.one_hot(action_tensor, self.model.n_output)
         with tf.GradientTape() as tape:
-            qvalue = self.model.qvalue_with_mask(hstate_input, mask) # q(s,a)
+            qvalue = self.model.qvalue_with_mask(hstate_tensor, mask) # q(s,a)
+            # qvalue = self.model.qvalue(hstate_tensor, action_tensor) # q(s,a)
             loss = self.model.loss_object(qtarget, qvalue)
         gradients = tape.gradient(loss, self.model.nn.trainable_variables)
         self.model.optimizer.apply_gradients(zip(gradients, self.model.nn.trainable_variables))
@@ -310,7 +314,7 @@ class Agentv2(Agentv1):
     def _get_dimensions(self):
         return 3
 
-    def guess(self, obs = None, hstate = None):
+    def guess_old(self, obs = None, hstate = None):
         if obs is None:
             return np.zeros(self.model.obs_shape, dtype=np.float32)
         if hstate is None:
@@ -318,6 +322,12 @@ class Agentv2(Agentv1):
         hstate = np.roll(hstate, -1, axis=0)
         hstate[-1, ...] = obs
         return np.array(hstate)
+
+    def guess(self, o, h):
+        """
+        x10 times faster than roll
+        """
+        return np.concatenate([h[1:], o[None]])
 
 class Monitorv1():
     def __init__(self, agent, env_eval, config):
@@ -387,20 +397,24 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue(self, verbose=False, dry_run=False):
+    def evalue(self, verbose=False, dry_run=False, h_I=None):
         env = self.env_eval
         agent = self.agent
-        obs = env.reset()
-        h = None
+        if h_I is not None:
+            h = h_I
+            obs = env.reset(h_I[-1])
+        else:
+            obs = env.reset()
+            h = np.zeros(agent.obs_shape, dtype=np.float32)
         done = False
         total_reward = 0
         steps = 0
         while not done:
             h = agent.guess(obs, h)
             action = agent(h)
-            obs_next, reward, done, _ = env.step(action)
+            obs, reward, done, _ = env.step(action)
             if not dry_run:
-                self.eval_data.append((obs, action, reward, obs_next, done))
+                self.eval_data.append((h, action, reward, obs, done))
             total_reward += reward
             steps += 1
         if not dry_run:

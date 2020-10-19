@@ -154,25 +154,32 @@ def analyze_env(env):
 def alpha_decreased(x, max_y=1, min_y=0.3, smoothness=0.2):
     return min_y+math.exp(-smoothness*x)*(max_y-min_y)
 
-def train_agent(env, env_eval, config=None, verbose=False):
-    if config is None:
-        config = get_config()
-    agent = get_agent_from_config(env=env, config=config, verbose=verbose)
+def train_agent(env, env_eval, config=None, args=None):
+    if config is None or isinstance(config, str):
+        config = get_config(config)
+    agent = get_agent_from_config(env=env, config=config, verbose=args.verbose)
     monitor = get_monitor_from_config(agent=agent, env_eval=env_eval, config=config)
     random.seed(config['seed'])
     epoch = 0
     ema = 0
-    agent.fill_memory(env)
+    agent.fill_memory(env, cyclic=args.cyclic)
+    h_I = np.zeros(agent.obs_shape, dtype=np.float32)
+    # import ipdb
     while not monitor.stop:
-        if verbose: t = tqdm.tqdm(total=ema)
-        obs = env.reset()
-        h = None
+        if args.verbose: t = tqdm.tqdm(total=ema)
+        if args.cyclic:
+            try:
+                obs = env.reset(obs)
+            except NameError:
+                obs = env.reset()
+                h = h_I
+        else:
+            obs = env.reset()
+            h = h_I
         done = False
         step = 0
         while not done:
             step += 1
-            # if verbose and t.n % 876 == 0:
-            #     monitor.evalue(verbose=verbose, dry_run=True)
             h = agent.guess(obs, h)
             exploration = random.random() < agent.explore_step()
             a = agent(h) if not exploration else agent.action_space.sample()
@@ -180,12 +187,12 @@ def train_agent(env, env_eval, config=None, verbose=False):
             agent.add_experience(h, a, r, obs, done)
             monitor.add_loss(agent.train_step())
             monitor.add_experience(h, a, r, obs, done)
-            if verbose: t.update()
-        if verbose:
+            if args.verbose: t.update()
+        if args.verbose:
             n = t.n
             t.close()
             ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
-        monitor.evalue(verbose=verbose)
-    if verbose:
+        monitor.evalue(verbose=args.verbose, h_I=h)
+    if args.verbose:
         print("===================== End =====================")
