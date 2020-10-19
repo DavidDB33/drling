@@ -122,7 +122,7 @@ def test_agent_guess():
     tf.random.set_seed(1)
     agent = _get_Agent2(spaces)
     ### Real values
-    h_list = [agent.guess()]
+    h_list = [np.zeros((HISTORY_LENGTH, N_OBS))]
     for o in o_list:
         h_list.append(agent.guess(o, h_list[-1]))
     h0_R = h_list[0]
