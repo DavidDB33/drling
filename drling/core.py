@@ -400,7 +400,12 @@ class Monitorv1():
 
     def _save_model(self):
         """Save the model of the agent in self.output_model"""
-        self.agent.model.nn.save_weights(self.output_model, save_format='h5')
+        try:
+            self.agent.model.nn.save_weights(self.output_model, save_format='h5')
+        except OSError:
+            os.makedirs(os.path.dirname(self.output_model))
+            self.agent.model.nn.save_weights(self.output_model, save_format='h5')
+            
 
     def _clear_data(self):
         """Clean all data stored from the epoch for the next train step"""
