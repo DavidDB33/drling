@@ -10,6 +10,9 @@ import statistics as stt
 import sys
 from collections import deque
 
+from colorama import init, deinit, reinit, Fore, Style
+init()
+deinit()
 import gym
 import h5py
 import numpy as np
@@ -364,21 +367,29 @@ class Monitorv1():
         Args:
             epoch (str): Epoch that determine the new subgroup in h5
         """
-        s_t_list, a_t_list, r_t_list, s__t_list, done_t_list = list(zip(*self.training_data))
-        s_e_list, a_e_list, r_e_list, s__e_list, done_e_list = list(zip(*self.eval_data))
-        data_dict = {
-            '%s/t/s': s_t_list,
-            '%s/t/a': a_t_list,
-            '%s/t/r': r_t_list,
-            '%s/t/s_': s__t_list,
-            '%s/t/d': done_t_list,
-            '%s/l': self.loss_list,
-            '%s/e/s': s_e_list,
-            '%s/e/a': a_e_list,
-            '%s/e/r': r_e_list,
-            '%s/e/s_': s__e_list,
-            '%s/e/d': done_e_list,
-        }
+        data_dict = dict()
+        if len(self.training_data) > 0:
+            s_t_list, a_t_list, r_t_list, s__t_list, done_t_list = list(zip(*self.training_data))
+            data_dict.update({
+                '%s/t/s': s_t_list,
+                '%s/t/a': a_t_list,
+                '%s/t/r': r_t_list,
+                '%s/t/s_': s__t_list,
+                '%s/t/d': done_t_list,
+            })
+        if len(self.loss_list) > 0:
+            data_dict.update({
+                '%s/l': self.loss_list,
+            })
+        if len(self.eval_data) > 0:
+            s_e_list, a_e_list, r_e_list, s__e_list, done_e_list = list(zip(*self.eval_data))
+            data_dict.update({
+                '%s/e/s': s_e_list,
+                '%s/e/a': a_e_list,
+                '%s/e/r': r_e_list,
+                '%s/e/s_': s__e_list,
+                '%s/e/d': done_e_list,
+            })
         with h5py.File(self.output_data, "a") as f:
             for k, v in data_dict.items():
                 try:
@@ -397,7 +408,7 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue(self, verbose=False, dry_run=False, h_I=None):
+    def evalue(self, verbose=False, oneline=True, dry_run=False, h_I=None):
         env = self.env_eval
         agent = self.agent
         if h_I is not None:
@@ -426,15 +437,30 @@ class Monitorv1():
                 self.early_stop_iterations += 1
         if verbose:
             if not dry_run:
-                print("Training summary of epoch {} ({} steps):".format(self.epoch, steps))
-                print("  Training mean (std) loss: {} ({})".format(np.array(self.loss_list).mean(), np.array(self.loss_list).std()))
-            print("  Evaluation reward: {}".format(total_reward))
-            if not dry_run:
+                if oneline:
+                    template = "Epoch {:7d} ({} steps) | early {:4d} | exploration {:.8f} | reward {:.8f} | loss {:.8f}"
+                    line = template.format(
+                                self.epoch, steps, self.early_stop_max_iterations - self.early_stop_iterations,
+                                agent.explore(),
+                                total_reward, np.array(self.loss_list).mean()
+                            )
+                    if self.early_stop_iterations == 0:
+                        reinit()
+                        # template = "\033[31m" + template + "\033[39m"
+                        print(Fore.GREEN + line + Style.RESET_ALL)
+                        deinit()
+                    else:
+                        print(line)
+                else:
+                    print("Training summary of epoch {} ({} steps):".format(self.epoch, steps))
+                    print("  Training mean (std) loss: {} ({})".format(np.array(self.loss_list).mean(), np.array(self.loss_list).std()))
+            if not oneline: print("  Evaluation reward: {}".format(total_reward))
+            if not dry_run and not oneline:
                 print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
         if not dry_run:
-            self.epoch += 1
             self._save_epoch(str(self.epoch))
             self._clear_data()
+            self.epoch += 1
 
     @property
     def stop(self):

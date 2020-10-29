@@ -154,20 +154,21 @@ def analyze_env(env):
 def alpha_decreased(x, max_y=1, min_y=0.3, smoothness=0.2):
     return min_y+math.exp(-smoothness*x)*(max_y-min_y)
 
-def train_agent(env, env_eval, config=None, args=None):
+def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=False):
     if config is None or isinstance(config, str):
         config = get_config(config)
-    agent = get_agent_from_config(env=env, config=config, verbose=args.verbose)
+    agent = get_agent_from_config(env=env, config=config, verbose=verbose)
     monitor = get_monitor_from_config(agent=agent, env_eval=env_eval, config=config)
     random.seed(config['seed'])
     epoch = 0
     ema = 0
-    agent.fill_memory(env, cyclic=args.cyclic)
+    agent.fill_memory(env, cyclic=cyclic)
     h_I = np.zeros(agent.obs_shape, dtype=np.float32)
+    monitor.evalue(verbose=verbose, oneline=oneline, h_I=h_I)
     # import ipdb
     while not monitor.stop:
-        if args.verbose: t = tqdm.tqdm(total=ema)
-        if args.cyclic:
+        if verbose and not oneline: t = tqdm.tqdm(total=ema)
+        if cyclic:
             try:
                 obs = env.reset(obs)
             except NameError:
@@ -187,12 +188,12 @@ def train_agent(env, env_eval, config=None, args=None):
             agent.add_experience(h, a, r, obs, done)
             monitor.add_loss(agent.train_step())
             monitor.add_experience(h, a, r, obs, done)
-            if args.verbose: t.update()
-        if args.verbose:
+            if verbose and not oneline: t.update()
+        if verbose and not oneline:
             n = t.n
             t.close()
             ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
-        monitor.evalue(verbose=args.verbose, h_I=h)
-    if args.verbose:
+        monitor.evalue(verbose=verbose, oneline=oneline, h_I=h)
+    if verbose:
         print("===================== End =====================")

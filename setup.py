@@ -1,16 +1,16 @@
 from setuptools import setup
 import glob
 
-with open('requirements.txt') as f:
-    install_requires = [
-        "gym==0.17.1",
-        "matplotlib==3.2.1",
-        "numpy==1.18.2",
-        "pandas>=1.0.3",
-        "tensorflow>=2.0.2",
-        "tqdm==4.45.0",
-        "PyYAML==5.3.1",
-    ]
+install_requires = [
+    "PyYAML>=5.3.1",
+    "colorama>=0.4.4",
+    "gym>=0.17.1",
+    "matplotlib>=3.2.1",
+    "numpy>=1.18.2",
+    "pandas>=1.0.3",
+    "tensorflow>=2.3.1",
+    "tqdm>=4.45.0",
+]
 
 setup(
     name="drling",
