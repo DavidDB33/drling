@@ -176,7 +176,7 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
                 h = h_I
         else:
             obs = env.reset()
-            h = h_I
+            h = np.zeros(agent.obs_shape, dtype=np.float32)
         done = False
         step = 0
         while not done:
@@ -194,6 +194,9 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
             t.close()
             ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
-        monitor.evalue(verbose=verbose, oneline=oneline, h_I=h)
+        if cyclic:
+            monitor.evalue(verbose=verbose, oneline=oneline, h_I=h_I)
+        else:
+            monitor.evalue(verbose=verbose, oneline=oneline, h_I=np.zeros(agent.obs_shape, dtype=np.float32))
     if verbose:
         print("===================== End =====================")
