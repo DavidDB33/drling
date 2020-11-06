@@ -111,12 +111,19 @@ class DQNv1():
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self.nn = self._get_nn(self.n_output, name=name)
+        self.nn_target = self._get_nn(self.n_output, name=name)
         self.gamma = config['agent']['network']['gamma']
-        self.load_weights = self.nn.load_weights
-        self.save_weights = self.nn.save_weights
 
     def _get_nn(self, n_output, name):
         return NNv1(n_output, name=name)
+
+    def load_weights(*args, **kwargs):
+        ret = self.nn.load_weights(*args, **kwargs)
+        self.nn_target.set_weights(self.nn.get_weights())
+        return ret
+
+    def save_weights(*args, **kwargs):
+        return self.nn.save_weights(*args, **kwargs)
 
     @tf.function
     def __call__(self, x):
@@ -148,14 +155,20 @@ class DQNv1():
         return x
 
     @tf.function
+    def target_qvalue_max(self, x):
+        x = self.nn_target(x)
+        x = tf.reduce_max(x, axis=1)
+        return x
+
+    @tf.function
     def argmax_qvalue(self, x):
         x = self.nn(x)
         x = tf.argmax(x, axis=1)
         return x
 
     @tf.function
-    def qtarget(self, x, r):
-        return r + self.gamma*self.qvalue_max(x)
+    def qtarget(self, x, r, d):
+        return r + self.gamma*self.target_qvalue_max(x)*(1-d)
 
     @tf.function
     def compute_error(self, o, a, r, n_o, done):
@@ -178,8 +191,9 @@ class Agentv1():
         self.config = config
         self.model = model
         self.ndim = self._get_dimensions()
-        # self.target = target
         self.memory = memory
+        self.train_steps_without_update = 0
+        self.train_steps_to_update = 10000
 
     def __call__(self, *args, **kwargs):
         """Alias for self.act"""
@@ -199,7 +213,6 @@ class Agentv1():
         if not self.model.nn.built:
             shape_nn = (None,*self.obs_shape)
             self.model.nn.build(shape_nn)
-            # self.target.nn.build(shape_nn)
         try:
             if load_from_path:
                 self.model.load_weights(path)
@@ -207,10 +220,6 @@ class Agentv1():
             print("Model not initialized. OSError skipped", file=sys.stderr)
             if not skip_OSError:
                 raise e
-        finally:
-            pass
-            # self.target.nn.set_weights(self.model.nn.get_weights())
-
 
     def act(self, belief, keep_tensor=False):
         """Perform an action. 
@@ -289,20 +298,25 @@ class Agentv1():
         action_tensor = tf.squeeze(tf.convert_to_tensor(action_list, dtype=tf.int32))
         reward_tensor = tf.convert_to_tensor(reward_list, dtype=tf.float32)
         next_hstate_tensor = tf.convert_to_tensor(next_hstate_list, dtype=tf.float32)
-        # self.target.nn.set_weights(self.model.nn.get_weights())
-        self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor) #, done_tensor)
+        done_tensor = tf.convert_to_tensor(done_list, dtype=tf.float32)
+        if self.train_steps_without_update > self.train_steps_to_update:
+            self.model.nn_target.set_weights(self.model.nn.get_weights())
+            self.train_steps_without_update = 0
+        else:
+            self.train_steps_without_update += 1
+        self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
         loss = self.model.train_loss.result().numpy()
         self.model.train_loss.reset_states()
         return loss
 
     @tf.function
-    def tf_train_step(self, hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor): #, done_list):
+    def tf_train_step(self, hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor):
         """
             q(s,a)_t+1 = q(s,a) - α*err
             err = q(s,a) - r+γ*max_a[q(s',a)]
             Only compute error + SGD instead of computing moving average and then SGD
         """
-        qtarget = self.model.qtarget(next_hstate_tensor, reward_tensor) # *(1-done_list) # r+γ*max_a[q(s',a')]
+        qtarget = self.model.qtarget(next_hstate_tensor, reward_tensor, done_tensor) # r+γ*max_a[q(s',a')]*(1-done)
         mask = tf.one_hot(action_tensor, self.model.n_output)
         with tf.GradientTape() as tape:
             qvalue = self.model.qvalue_with_mask(hstate_tensor, mask) # q(s,a)
