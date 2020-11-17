@@ -83,7 +83,7 @@ def get_config(path = None):
         _config (dict): A dict with the file config updated by program params
     """
     global _config
-    if _config is not None:
+    if path is None and_config is not None:
         return copy.deepcopy(_config)
     _config = get_config_from_file(path)
     return copy.deepcopy(_config)
@@ -155,6 +155,7 @@ def alpha_decreased(x, max_y=1, min_y=0.3, smoothness=0.2):
     return min_y+math.exp(-smoothness*x)*(max_y-min_y)
 
 def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=False):
+    times = dict(t_ini=time.time(), t_tr_tot=0, t_ev_tot=0)
     if config is None or isinstance(config, str):
         config = get_config(config)
     agent = get_agent_from_config(env=env, config=config, verbose=verbose)
@@ -164,9 +165,10 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
     ema = 0
     agent.fill_memory(env, cyclic=cyclic)
     h_I = np.zeros(agent.obs_shape, dtype=np.float32)
-    monitor.evalue(verbose=verbose, oneline=oneline, h_I=h_I)
-    # import ipdb
+    steps_tot = 0
+    monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=h_I)
     while not monitor.stop:
+        t_tr_s = time.time()
         if verbose and not oneline: t = tqdm.tqdm(total=ema)
         if cyclic:
             try:
@@ -194,9 +196,11 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
             t.close()
             ema = int(round(ema + alpha_decreased(epoch) * (n - ema)))
         epoch += 1
+        steps_tot += step
+        times['t_tr_tot'] += time.time() - t_tr_s
         if cyclic:
-            monitor.evalue(verbose=verbose, oneline=oneline, h_I=h_I)
+            monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=h_I)
         else:
-            monitor.evalue(verbose=verbose, oneline=oneline, h_I=np.zeros(agent.obs_shape, dtype=np.float32))
+            monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=np.zeros(agent.obs_shape, dtype=np.float32))
     if verbose:
         print("===================== End =====================")

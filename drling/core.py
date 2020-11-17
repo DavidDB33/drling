@@ -8,6 +8,7 @@ import os.path
 import random
 import statistics as stt
 import sys
+import time
 from collections import deque
 
 from colorama import init, deinit, reinit, Fore, Style
@@ -428,7 +429,8 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue(self, verbose=False, oneline=True, dry_run=False, h_I=None):
+    def evalue(self, steps_tot, times, verbose=False, oneline=True, dry_run=False, h_I=None):
+        t_ev_s = time.time()
         env = self.env_eval
         agent = self.agent
         if h_I is not None:
@@ -440,10 +442,12 @@ class Monitorv1():
         done = False
         total_reward = 0
         steps = 0
+        action_list = list()
         while not done:
             h = agent.guess(obs, h)
             action = agent(h)
             obs, reward, done, _ = env.step(action)
+            action_list.append(action)
             if not dry_run:
                 self.eval_data.append((h, action, reward, obs, done))
             total_reward += reward
@@ -455,12 +459,14 @@ class Monitorv1():
                 self.early_stop_iterations = 0
             else:
                 self.early_stop_iterations += 1
+        times['t_ev_tot'] += time.time() - t_ev_s
         if verbose:
             if not dry_run:
                 if oneline:
-                    template = "Epoch {:7d} ({} steps) | early {:4d} | exploration {:.8f} | reward {:.8f} | loss {:.8f}"
+                    template = "W{:.1f}T{:.1f}E{:.1f}| Epoch {:5d} ({:7d} steps) | early {:4d} | exploration {:.8f} | reward {:.8f} | loss {:.8f}"
                     line = template.format(
-                                self.epoch, steps, self.early_stop_max_iterations - self.early_stop_iterations,
+                                time.time()-times['t_ini'], times['t_tr_tot'], times['t_ev_tot'],
+                                self.epoch, steps_tot, self.early_stop_max_iterations - self.early_stop_iterations,
                                 agent.explore(),
                                 total_reward, np.array(self.loss_list).mean()
                             )
@@ -469,6 +475,7 @@ class Monitorv1():
                         # template = "\033[31m" + template + "\033[39m"
                         print(Fore.GREEN + line + Style.RESET_ALL)
                         deinit()
+                        print("Solution:", np.array(action_list).ravel().tolist())
                     else:
                         print(line)
                 else:
@@ -484,7 +491,7 @@ class Monitorv1():
 
     @property
     def stop(self):
-        return self.early_stop_iterations >= self.early_stop_max_iterations
+        return self.early_stop_iterations == self.early_stop_max_iterations # == to be able to: early == -1 -> never ends
         
     @property
     def has_improved(self):
