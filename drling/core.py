@@ -118,12 +118,12 @@ class DQNv1():
     def _get_nn(self, n_output, name):
         return NNv1(n_output, name=name)
 
-    def load_weights(*args, **kwargs):
+    def load_weights(self, *args, **kwargs):
         ret = self.nn.load_weights(*args, **kwargs)
         self.nn_target.set_weights(self.nn.get_weights())
         return ret
 
-    def save_weights(*args, **kwargs):
+    def save_weights(self, *args, **kwargs):
         return self.nn.save_weights(*args, **kwargs)
 
     @tf.function

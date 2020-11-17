@@ -65,7 +65,7 @@ def update_config_with_args(config, args):
 
 def get_config_from_file(path = None):
     if path is None:
-        filename = "agent.config.yaml"
+        filename = os.path.join("config", "agent.config.yaml")
     else:
         filename = os.path.expanduser(path)
     with open(filename, "r") as f:
@@ -74,17 +74,17 @@ def get_config_from_file(path = None):
     return config
 
 def get_config(path = None):
-    """Returns a copy of a singleton config dict.
+    """If path is specified, returns the config from path, else get a copy of the last config loaded as a singleton.
 
     Program parameters have priority over the file
     Args:
-        path (str): Path to the configuration file, default: agent.config.yaml
+        path (str): Path to the configuration file. If path is None and a config was never loaded, use default of get_config_from_file()
 
     Returns:
         _config (dict): A dict with the file config updated by program params
     """
     global _config
-    if path is None and config is not None:
+    if path is None and _config is not None:
         return copy.deepcopy(_config)
     _config = get_config_from_file(path)
     return copy.deepcopy(_config)
