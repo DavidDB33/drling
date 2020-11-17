@@ -379,7 +379,7 @@ class Monitorv1():
     def _save_epoch(self, epoch):
         """Store in h5/epoch training, eval and loss data gather from self
         Args:
-            epoch (str): Epoch that determine the new subgroup in h5
+            epoch (int): Epoch that determine the new subgroup in h5
         """
         data_dict = dict()
         if len(self.training_data) > 0:
@@ -404,12 +404,13 @@ class Monitorv1():
                 '%s/e/s_': s__e_list,
                 '%s/e/d': done_e_list,
             })
+        mode = "a" if epoch > 0 else "w"
         with h5py.File(self.output_data, "a") as f:
             for k, v in data_dict.items():
                 try:
-                    f[k%epoch] = v
+                    f[k%str(epoch)] = v
                 except (OSError, RuntimeError):
-                    del f[k%epoch]
+                    del f[k%str(epoch)]
                     f[k%epoch] = v
 
     def _save_model(self):
@@ -477,7 +478,7 @@ class Monitorv1():
             if not dry_run and not oneline:
                 print("  Early iter remaining: {}".format(self.early_stop_max_iterations - self.early_stop_iterations))
         if not dry_run:
-            self._save_epoch(str(self.epoch))
+            self._save_epoch(self.epoch)
             self._clear_data()
             self.epoch += 1
 
