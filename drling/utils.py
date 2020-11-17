@@ -84,7 +84,7 @@ def get_config(path = None):
         _config (dict): A dict with the file config updated by program params
     """
     global _config
-    if path is None and_config is not None:
+    if path is None and config is not None:
         return copy.deepcopy(_config)
     _config = get_config_from_file(path)
     return copy.deepcopy(_config)
