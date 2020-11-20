@@ -165,9 +165,9 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
     epoch = 0
     ema = 0
     agent.fill_memory(env, cyclic=cyclic)
-    h_I = np.zeros(agent.obs_shape, dtype=np.float32)
+    h_I = None
     steps_tot = 0
-    monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=h_I)
+    monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=None)
     while not monitor.stop:
         t_tr_s = time.time()
         if verbose and not oneline: t = tqdm.tqdm(total=ema)
@@ -176,7 +176,7 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
                 obs = env.reset(obs)
             except NameError:
                 obs = env.reset()
-                h = h_I
+                h = np.zeros(agent.obs_shape, dtype=np.float32)
         else:
             obs = env.reset()
             h = np.zeros(agent.obs_shape, dtype=np.float32)
@@ -202,6 +202,6 @@ def train_agent(env, env_eval, config=None, verbose=False, oneline=True, cyclic=
         if cyclic:
             monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=h_I)
         else:
-            monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=np.zeros(agent.obs_shape, dtype=np.float32))
+            monitor.evalue(steps_tot, times, verbose=verbose, oneline=oneline, h_I=None)
     if verbose:
         print("===================== End =====================")

@@ -429,30 +429,46 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
+    def evalue_policy(self, policy, env, h_I=None):
+        trayectory = list() # of steps
+        state_next = env.reset(h_I)
+        done = False
+        while not done:
+            state = state_next
+            action = policy(state)
+            state_next, reward, done, _ = env.step(action)
+            step = state, action, reward, state_next, done
+            trayectory.append(step)
+        return trayectory
+
     def evalue(self, steps_tot, times, verbose=False, oneline=True, dry_run=False, h_I=None):
         t_ev_s = time.time()
         env = self.env_eval
-        agent = self.agent
-        if h_I is not None:
-            h = h_I
-            obs = env.reset(h_I[-1])
-        else:
-            obs = env.reset()
-            h = np.zeros(agent.obs_shape, dtype=np.float32)
-        done = False
-        total_reward = 0
-        steps = 0
-        action_list = list()
-        while not done:
-            h = agent.guess(obs, h)
-            action = agent(h)
-            obs, reward, done, _ = env.step(action)
-            action_list.append(action)
-            if not dry_run:
-                self.eval_data.append((h, action, reward, obs, done))
-            total_reward += reward
-            steps += 1
+        class Policy():
+            def __init__(self, agent, initial_belief=None):
+                self.agent = agent
+                self.internal_belief = np.zeros(agent.obs_shape, dtype=np.float32)
+            def __call__(self, observation):
+                self.internal_belief = self.agent.guess(observation, self.internal_belief)
+                return self.agent(self.internal_belief)
+        policy = Policy(self.agent, h_I)
+        trayectory = self.evalue_policy(policy, env, h_I)
+        steps = len(trayectory)
+        total_reward = sum([step[2] for step in trayectory])
+        action_list = [step[1] for step in trayectory]
         if not dry_run:
+            self.eval_data = trayectory
+        # action_list = list()
+        # while not done:
+        #     h = agent.guess(obs, h)
+        #     action = agent(h)
+        #     obs, reward, done, _ = env.step(action)
+        #     action_list.append(action)
+        #     if not dry_run:
+        #         self.eval_data.append((h, action, reward, obs, done))
+        #     total_reward += reward
+        #     steps += 1
+        # if not dry_run:
             if self.best_reward is None or total_reward > self.best_reward:
                 self.best_reward = total_reward
                 self._save_model()
@@ -467,7 +483,7 @@ class Monitorv1():
                     line = template.format(
                                 time.time()-times['t_ini'], times['t_tr_tot'], times['t_ev_tot'],
                                 self.epoch, steps_tot, self.early_stop_max_iterations - self.early_stop_iterations,
-                                agent.explore(),
+                                self.agent.explore(),
                                 total_reward, np.array(self.loss_list).mean()
                             )
                     if self.early_stop_iterations == 0:
