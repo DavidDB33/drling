@@ -12,7 +12,7 @@ from collections.abc import Iterable
 import gym
 import numpy as np
 from tqdm import autonotebook as tqdm
-from .core import Agentv1, Agentv2, DQNv1, DQNv2, Memoryv1, Monitorv1
+from .core import Agentv1, Agentv2, DQNv0, DQNv1, DQNv2, Memoryv1, Monitorv1
 
 _config_file = None # Singleton
 _config = None # Singleton
@@ -20,6 +20,9 @@ _parser = None # Singleton
 _seed = None # Singleton
 
 class GetAgentError(Exception):
+    pass
+
+class LabelError(KeyError):
     pass
 
 def set_parser(parser):
@@ -92,7 +95,23 @@ def get_config(path = None):
 def set_config(config):
     global _config
     _config = config
+
+def get_memory(label, config, verbose=False):
+    return Memoryv1(
+        max_size=config['agent']['memory']['max_size'],
+        min_size=config['agent']['memory']['min_size'],
+        seed=config['seed'],
+        verbose=verbose)
     
+def get_model(label, observation_space, action_space, name="model", config=None):
+    DQN_class = {"DQNv0": DQNv0, "DQNv1": DQNv1, "DQNv2": DQNv2}
+    try:
+        model = DQN_class[label](observation_space, action_space, name=name, config=config)
+    except KeyError as e:
+        raise (LabelError("Label {} not found. Must be {}".format(e, list(DQN_class.keys()))
+            ).with_traceback(sys.exc_info()[2]))
+    return model
+
 def get_agent(label, model, memory=None, config=None, verbose=False):
     """By default, load the default config"""
     Agent_class = {"Agentv1": Agentv1, "Agentv2": Agentv2}
@@ -110,28 +129,10 @@ def get_agent(label, model, memory=None, config=None, verbose=False):
     return agent
 
 def get_agent_from_config(env, config, verbose=False):
+    """Maybe the most interesing method in this file"""
     model = get_model(label=config['agent']['network']['name'], observation_space=env.observation_space, action_space=env.action_space, config=config)
     agent = get_agent(label=config['agent']['name'], model=model, memory=config['agent']['memory']['name'], config=config, verbose=verbose)
     return agent
-
-class LabelError(KeyError):
-    pass
-
-def get_model(label, observation_space, action_space, name="model", config=None):
-    DQN_class = {"DQNv1": DQNv1, "DQNv2": DQNv2}
-    try:
-        model = DQN_class[label](observation_space, action_space, name=name, config=config)
-    except KeyError as e:
-        raise (LabelError("Label {} not found. Must be {}".format(e, list(DQN_class.keys()))
-            ).with_traceback(sys.exc_info()[2]))
-    return model
-
-def get_memory(label, config, verbose=False):
-    return Memoryv1(
-        max_size=config['agent']['memory']['max_size'],
-        min_size=config['agent']['memory']['min_size'],
-        seed=config['seed'],
-        verbose=verbose)
 
 def get_monitor(label, agent, env_eval, config):
     return Monitorv1(agent, env_eval, config)
@@ -147,10 +148,10 @@ def analyze_env(env):
     template = (" = Environment info =\n"
                 "Observation space: {obs_space}\n"
                 "\ttype: {space_type}\n")
-    # print(template.format(
-    #     obs_space=env.observation_space,
-    #     space_type=space_type)
-    # )
+    print(template.format(
+        obs_space=env.observation_space,
+        space_type=space_type)
+    )
 
 def alpha_decreased(x, max_y=1, min_y=0.3, smoothness=0.2):
     return min_y+math.exp(-smoothness*x)*(max_y-min_y)

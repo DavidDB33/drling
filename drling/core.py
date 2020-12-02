@@ -9,7 +9,7 @@ import random
 import statistics as stt
 import sys
 import time
-from collections import deque
+from collections import deque, namedtuple
 
 from colorama import init, deinit, reinit, Fore, Style
 init()
@@ -26,7 +26,7 @@ except:
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # To silent Tensorflow warnings
 from tqdm import autonotebook as tqdm
 import tensorflow as tf
-from tensorflow.keras import Model
+from tensorflow.keras import Model, layers as Layers
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
 
 class Memoryv1():
@@ -65,6 +65,22 @@ class Memoryv1():
     def sample(self, batch_size):
         return self.rng.sample(self.buffer, batch_size)
 
+class NNv0(Model):
+    def __init__(self, n_output, hidden_layers, **kwargs):
+        super().__init__(**kwargs)
+        self.nnlayers = list()
+        for layer in hidden_layers:
+            self.nnlayers.append(getattr(Layers, layer['class'])(*layer['args'], **layer['kwargs']))
+        self.output_layer = Dense(n_output, activation=None)
+
+    @tf.function
+    def call(self, x):
+        y = x
+        for layer in self.nnlayers:
+            y = layer(y)
+        output = self.output_layer(y)
+        return output
+
 class NNv1(Model):
     def __init__(self, n_output, **kwargs):
         super().__init__(**kwargs)
@@ -101,22 +117,29 @@ class NNv2(Model):
         y = self.d3(y)
         return y
 
-class DQNv1():
+class DQNv0():
     def __init__(self, observation_space, action_space, name, config):
         self.action_space = action_space
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
-        self.loss_object = tf.keras.losses.MeanSquaredError() # Try huber loss
-        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate']) #, clipnorm=1.0)
+        self.loss_object = tf.keras.losses.Huber()# MeanSquaredError() # Try huber loss
+        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'], clipnorm=1.0)
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
-        self.nn = self._get_nn(self.n_output, name=name)
-        self.nn_target = self._get_nn(self.n_output, name=name)
+        self.nn = self._get_nn(self.n_output, config=config, name=name)
+        self.nn_target = self._get_nn(self.n_output, config=config, name=name)
         self.gamma = config['agent']['network']['gamma']
 
-    def _get_nn(self, n_output, name):
-        return NNv1(n_output, name=name)
+    def _build(self, shape_nn):
+        self.nn.build(shape_nn)
+        if not self.nn_target.built:
+            self.nn_target.build(shape_nn)
+
+    def _get_nn(self, n_output, config, name):
+        if "name" in config['model']:
+            name = config['model']['name']
+        return NNv0(n_output, hidden_layers=config['model']['hidden_layers'], name=name)
 
     def load_weights(self, *args, **kwargs):
         ret = self.nn.load_weights(*args, **kwargs)
@@ -175,8 +198,12 @@ class DQNv1():
     def compute_error(self, o, a, r, n_o, done):
         return tf.keras.losses.MSE(self.qtarget(n_o, r), self.qvalue(o, a))
 
-class DQNv2(DQNv1):
-    def _get_nn(self, n_output, name):
+class DQNv1(DQNv0):
+    def _get_nn(self, n_output, config, name):
+        return NNv1(n_output, name=name)
+
+class DQNv2(DQNv0):
+    def _get_nn(self, n_output, config, name):
         return NNv2(n_output, name=name)
 
 class Agentv1():
@@ -194,7 +221,7 @@ class Agentv1():
         self.ndim = self._get_dimensions()
         self.memory = memory
         self.train_steps_without_update = 0
-        self.train_steps_to_update = 10000
+        self.train_steps_to_update = 1
 
     def __call__(self, *args, **kwargs):
         """Alias for self.act"""
@@ -213,14 +240,14 @@ class Agentv1():
     def load_weights(self, path, load_from_path=True, skip_OSError=False):
         if not self.model.nn.built:
             shape_nn = (None,*self.obs_shape)
-            self.model.nn.build(shape_nn)
+            self.model._build(shape_nn)
         try:
             if load_from_path:
                 self.model.load_weights(path)
         except OSError as e:
-            print("Model not initialized. OSError skipped", file=sys.stderr)
             if not skip_OSError:
                 raise e
+            print("Model not initialized. OSError skipped", file=sys.stderr)
 
     def act(self, belief, keep_tensor=False):
         """Perform an action. 
@@ -303,6 +330,8 @@ class Agentv1():
         if self.train_steps_without_update > self.train_steps_to_update:
             self.model.nn_target.set_weights(self.model.nn.get_weights())
             self.train_steps_without_update = 0
+            if self.train_steps_to_update < 10000:
+                self.train_steps_to_update += 1
         else:
             self.train_steps_without_update += 1
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
@@ -429,30 +458,11 @@ class Monitorv1():
         self.eval_data = list()
         self.loss_list = list()
 
-    def evalue_policy(self, policy, env, h_I=None):
-        trayectory = list() # of steps
-        state_next = env.reset(h_I)
-        done = False
-        while not done:
-            state = state_next
-            action = policy(state)
-            state_next, reward, done, _ = env.step(action)
-            step = state, action, reward, state_next, done
-            trayectory.append(step)
-        return trayectory
-
     def evalue(self, steps_tot, times, verbose=False, oneline=True, dry_run=False, h_I=None):
         t_ev_s = time.time()
         env = self.env_eval
-        class Policy():
-            def __init__(self, agent, initial_belief=None):
-                self.agent = agent
-                self.internal_belief = np.zeros(agent.obs_shape, dtype=np.float32)
-            def __call__(self, observation):
-                self.internal_belief = self.agent.guess(observation, self.internal_belief)
-                return self.agent(self.internal_belief)
         policy = Policy(self.agent, h_I)
-        trayectory = self.evalue_policy(policy, env, h_I)
+        trayectory = evalue_policy(policy, env, h_I)
         steps = len(trayectory)
         total_reward = sum([step[2] for step in trayectory])
         action_list = [step[1] for step in trayectory]
@@ -599,4 +609,28 @@ class Monitorv1():
         plt.pause(0.00001)
         self.plot_epoch += 1
         self.last_reward = new_reward
+
+class Policy():
+    def __init__(self, agent, initial_belief=None):
+        self.agent = agent
+        if initial_belief is None:
+            initial_belief = np.zeros(agent.obs_shape, dtype=np.float32)
+        self.internal_belief = initial_belief
+    def __call__(self, observation):
+        self.internal_belief = self.agent.guess(observation, self.internal_belief)
+        return self.agent(self.internal_belief)
+
+StepClass = namedtuple("Step", ["state", "action", "reward", "next_state", "done"])
+
+def evalue_policy(policy, env, h_I=None):
+    trayectory = list() # of steps
+    next_state = env.reset(h_I)
+    done = False
+    while not done:
+        state = next_state
+        action = policy(state)
+        next_state, reward, done, _ = env.step(action)
+        step = StepClass(state, action, reward, next_state, done)
+        trayectory.append(step)
+    return trayectory
 
