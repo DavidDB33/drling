@@ -28,6 +28,7 @@ from tqdm import autonotebook as tqdm
 import tensorflow as tf
 from tensorflow.keras import Model, layers as Layers
 from tensorflow.keras.layers import Dense, Flatten, Conv1D
+# import tensorflow_addons as tfa
 
 class Memoryv1():
     def __init__(self, max_size=100000, min_size=1000, seed=None, verbose=False):
@@ -124,12 +125,36 @@ class DQNv0():
         self.obs_shape = self.window_size + observation_space.shape
         self.n_output = action_space.shape and np.product(action_space.nvec) or action_space.n
         self.loss_object = tf.keras.losses.Huber()# MeanSquaredError() # Try huber loss
-        self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'], clipnorm=1.0)
+        self.learning_rate_initial = config['agent']['network']['learning_rate']
+        self.learning_rate_schedule = self._get_learning_rate_schedule(config=config)
+        # self.optimizer = tf.keras.optimizers.Nadam(learning_rate=config['agent']['network']['learning_rate'], clipnorm=1.0)
+        # self.optimizer = tfa.optimizers.AdamW(learning_rate=config['agent']['network']['learning_rate'], weight_decay=self._get_wd(), clipvalue=1.0)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate_schedule, clipvalue=1.0)
         self.train_loss = tf.keras.metrics.Mean(name='train_loss')
         self.test_loss = tf.keras.metrics.Mean(name='test_loss')
         self.nn = self._get_nn(self.n_output, config=config, name=name)
         self.nn_target = self._get_nn(self.n_output, config=config, name=name)
         self.gamma = config['agent']['network']['gamma']
+
+    def _get_learning_rate_schedule(self, config):
+        # learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        #     learning_rate_initial,
+        #     decay_steps=24*10000,
+        #     decay_rate=0.1,
+        #     staircase=True
+        # ) # Same as piecewise 24*[10000, 20000, 30000, ...] [1e-3, 1e-4, 1e-5, ...] being lr_ini := 1e-3
+        learning_rate_initial = config['agent']['network']['learning_rate'] # Repeated but maybe here is better
+        if 'optimizer' in config: # Now only PiecewiseConstantDecay only available
+            cfgopt = config['optimizer']
+            bem = cfgopt['boundary epoch multiplier'] # This is not suitable (use better length of the episode)
+            lri = learning_rate_initial
+            learning_rate_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+                boundaries=[b*bem for b in cfgopt['boundaries']],
+                values=[float(s)*lri for s in cfgopt['values']]
+            )
+        else: # Default and deprecated TODO: raise warning message
+            learning_rate_schedule = learning_rate_initial
+        return learning_rate_schedule
 
     def _build(self, shape_nn):
         self.nn.build(shape_nn)
@@ -230,12 +255,12 @@ class Agentv1():
     def _get_dimensions(self):
         return 2
 
-    def fill_memory(self, env, cyclic=False):
-        self.memory.fill_memory(env, self, cyclic=False)
-
     @property
     def obs_shape(self):
         return self.model.obs_shape
+
+    def fill_memory(self, env, cyclic=False):
+        self.memory.fill_memory(env, self, cyclic=False)
 
     def load_weights(self, path, load_from_path=True, skip_OSError=False):
         if not self.model.nn.built:
@@ -303,6 +328,10 @@ class Agentv1():
     def guess(self, obs = None, hstate = None):
         return obs
 
+    def sample(self):
+        action = self.action_space.sample()
+        return action
+
     def _ravel_action(self, action):
         if np.array(action).size > 1:
             action = np.ravel_multi_index(action, self.action_space.nvec).squeeze()
@@ -313,10 +342,6 @@ class Agentv1():
         action = self._ravel_action(action)
         experience = obs, action, reward, next_obs, done
         self.memory.add(experience)
-
-    def sample(self):
-        action = self.action_space.sample()
-        return action
 
     def train_step(self):
         experience_list = self.memory.sample(self.batch_size)
@@ -337,6 +362,7 @@ class Agentv1():
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
         loss = self.model.train_loss.result().numpy()
         self.model.train_loss.reset_states()
+        # print(self.model.optimizer.lr)
         return loss
 
     @tf.function
@@ -360,15 +386,6 @@ class Agentv1():
 class Agentv2(Agentv1):
     def _get_dimensions(self):
         return 3
-
-    def guess_old(self, obs = None, hstate = None):
-        if obs is None:
-            return np.zeros(self.model.obs_shape, dtype=np.float32)
-        if hstate is None:
-            hstate = np.zeros(self.model.obs_shape, dtype=np.float32)
-        hstate = np.roll(hstate, -1, axis=0)
-        hstate[-1, ...] = obs
-        return np.array(hstate)
 
     def guess(self, o, h):
         """
