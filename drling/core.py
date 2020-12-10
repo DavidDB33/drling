@@ -519,7 +519,7 @@ class Monitorv1():
                         print(Fore.GREEN + line + Style.RESET_ALL)
                         deinit()
                         solution_array = np.array(action_list).ravel().tolist()
-                        if len(solution_array) <= 180
+                        if len(solution_array) <= 180:
                             print("Solution:", solution_array)
                     else:
                         print(line)
