@@ -518,7 +518,9 @@ class Monitorv1():
                         # template = "\033[31m" + template + "\033[39m"
                         print(Fore.GREEN + line + Style.RESET_ALL)
                         deinit()
-                        print("Solution:", np.array(action_list).ravel().tolist())
+                        solution_array = np.array(action_list).ravel().tolist()
+                        if len(solution_array) <= 180
+                            print("Solution:", solution_array)
                     else:
                         print(line)
                 else:
