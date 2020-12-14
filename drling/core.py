@@ -101,17 +101,16 @@ class NNv1(Model):
 class NNv2(Model):
     def __init__(self, n_output, **kwargs):
         super().__init__(**kwargs)
-        self.c1 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
-        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
+        self.c1 = Conv1D(32, 3, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
+        # self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
         self.f1 = Flatten(name="flatten_1")
-        self.d1 = Dense(50, activation='relu', kernel_initializer="he_uniform", name="dense_1")
-        self.d2 = Dense(20, activation='relu', kernel_initializer="he_uniform", name="dense_2")
+        self.d1 = Dense(64, activation='relu', kernel_initializer="he_uniform", name="dense_1")
+        self.d2 = Dense(16, activation='relu', kernel_initializer="he_uniform", name="dense_2")
         self.d3 = Dense(n_output, activation=None, kernel_initializer="he_uniform", name="dense_3")
 
     @tf.function
     def call(self, x):
         y = self.c1(x)
-        y = self.c2(y)
         y = self.f1(y)
         y = self.d1(y)
         y = self.d2(y)
@@ -135,6 +134,7 @@ class DQNv0():
         self.nn = self._get_nn(self.n_output, config=config, name=name)
         self.nn_target = self._get_nn(self.n_output, config=config, name=name)
         self.gamma = config['agent']['network']['gamma']
+        self._build((None, *self.obs_shape))
 
     def _get_learning_rate_schedule(self, config):
         # learning_rate_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -160,6 +160,7 @@ class DQNv0():
         self.nn.build(shape_nn)
         if not self.nn_target.built:
             self.nn_target.build(shape_nn)
+        self.nn.summary()
 
     def _get_nn(self, n_output, config, name):
         if "name" in config['model']:
