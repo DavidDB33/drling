@@ -246,8 +246,9 @@ class Agentv1():
         self.model = model
         self.ndim = self._get_dimensions()
         self.memory = memory
+        self.target_steps_update = int(config['agent']['target']['update'])*10
         self.train_steps_without_update = 0
-        self.train_steps_to_update = 1
+        self.train_steps_to_update = self.target_steps_update
 
     def __call__(self, *args, **kwargs):
         """Alias for self.act"""
@@ -356,7 +357,7 @@ class Agentv1():
         if self.train_steps_without_update > self.train_steps_to_update:
             self.model.nn_target.set_weights(self.model.nn.get_weights())
             self.train_steps_without_update = 0
-            if self.train_steps_to_update < 10000:
+            if self.train_steps_to_update < self.target_steps_update:
                 self.train_steps_to_update += 1
         else:
             self.train_steps_without_update += 1
@@ -507,12 +508,13 @@ class Monitorv1():
         if verbose:
             if not dry_run:
                 if oneline:
-                    template = "W{:.1f}T{:.1f}E{:.1f}| Epoch {:5d} ({:7d} steps) | early {:4d} | exploration {:.8f} | reward {:.8f} | loss {:.8f}"
+                    template = "W{:.1f}T{:.1f}E{:.1f} | Epoch {:5d} ({:7d} steps) | early {:4d} | exploration {:.8f} | reward {:.8f} | loss mean {:.8f} | loss std {:.8f}"
+                    loss_array = np.array(self.loss_list)
                     line = template.format(
                                 time.time()-times['t_ini'], times['t_tr_tot'], times['t_ev_tot'],
                                 self.epoch, steps_tot, self.early_stop_max_iterations - self.early_stop_iterations,
                                 self.agent.explore(),
-                                total_reward, np.array(self.loss_list).mean()
+                                total_reward, loss_array.mean(), loss_array.std()
                             )
                     if self.early_stop_iterations == 0:
                         reinit()
