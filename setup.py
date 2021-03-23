@@ -14,7 +14,7 @@ install_requires = [
 
 setup(
     name="drling",
-    version="0.0.5",
+    version="0.0.6",
     description="Deep reinforcement learning algorithms for Researcher's LearnING",
     scripts=glob.glob("scripts/drling_*.py"),
     author_email="david.dominguez@iit.comillas.edu",
