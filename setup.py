@@ -8,8 +8,9 @@ install_requires = [
     "matplotlib>=3.2.1",
     "numpy>=1.18.2",
     "pandas>=1.0.3",
-#     "tensorflow>=2.3.1",
+    "h5py>=3.1.0",
     "tqdm>=4.45.0",
+    "tensorflow>=2.3.1",
 ]
 
 setup(
