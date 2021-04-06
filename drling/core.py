@@ -104,7 +104,7 @@ class NNv3(Model):
         return y
 
 class DQN():
-    def __init__(self, observation_space, action_space, name, config, verbose=False):
+    def __init__(self, observation_space, action_space, name, config, verbose=True):
         self.action_space = action_space
         self.window_size = (config['agent']['history_window'] if 'history_window' in config['agent'] and config['agent']['history_window'] is not None else 1,)
         self.obs_shape = self.window_size + observation_space.shape
@@ -237,6 +237,9 @@ class Agentv1():
         self.target_steps_update = int(config['agent']['target']['update'])
         self.train_steps_without_update = 0
         self.train_steps_to_update = self.target_steps_update
+        self.percentage_to_update_init = 1.1
+        self.percentage_to_update = self.percentage_to_update_init
+        self.percentage_to_update_target = 1
         self.actual_loss = 1.0
         self.update_msg = "" # For debugging purposes
         self.update_flag = False # For debugging purposes
@@ -354,16 +357,20 @@ class Agentv1():
         hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor = self._convert_experience_list_to_tensor(experience_list)
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
         loss = self.model.train_loss.result().numpy()
-        self.actual_loss = self.actual_loss + 0.1*(loss - self.actual_loss)
+        self.actual_loss = self.actual_loss + 0.1*(loss - self.actual_loss) # Moving average to smooth the update
         self.model.train_loss.reset_states()
-        if self.train_steps_without_update >= self.train_steps_to_update and self.actual_loss < 2*self.best_loss:
+        if self.train_steps_without_update >= self.train_steps_to_update and self.actual_loss < self.percentage_to_update*self.best_loss:
             self.model.nn_target.set_weights(self.model.nn.get_weights())
             self.update_msg = "Policy updated after {} steps".format(self.train_steps_without_update)
             self.update_flag = True
             self.train_steps_without_update = 0
             # if self.train_steps_to_update < self.target_steps_update:
             #     self.train_steps_to_update += 1
-            self.best_loss = min(self.actual_loss, self.best_loss)
+            if self.actual_loss < self.best_loss:
+                self.best_loss = min(self.actual_loss, self.best_loss)
+                self.percentage_to_update = self.percentage_to_update_init
+            else: # Contract update restriction
+                self.percentage_to_update = self.percentage_to_update_target + 0.9*(self.percentage_to_update - self.percentage_to_update_target)
         else:
             self.train_steps_without_update += 1
         return loss
