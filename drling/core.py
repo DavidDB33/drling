@@ -66,8 +66,8 @@ class NNv1(Model):
 class NNv2(Model):
     def __init__(self, n_output, **kwargs):
         super().__init__(**kwargs)
-        self.c1 = Conv1D(32, 3, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
-        self.c2 = Conv1D(16, 2, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
+        self.c1 = Conv1D(16, 3, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
+        self.c2 = Conv1D(32, 3, padding='valid', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
         self.f1 = Flatten(name="flatten_1")
         self.d1 = Dense(64, activation='relu', kernel_initializer="he_uniform", name="dense_1")
         self.d2 = Dense(16, activation='relu', kernel_initializer="he_uniform", name="dense_2")
@@ -85,22 +85,23 @@ class NNv2(Model):
 class NNv3(Model):
     def __init__(self, n_output, **kwargs):
         super().__init__(**kwargs)
-        self.c1 = Conv1D(32, 3, padding='same', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_1")
-        self.c2 = Conv1D(128, 3, padding='same', activation='relu', kernel_initializer="glorot_uniform", name="conv1d_2")
+        self.c1 = Conv1D(32, 3, padding='same', activation='relu', kernel_initializer="glorot_uniform", input_shape=(3, 3), data_format="channels_last", name="conv1d_1")
+        self.c2 = Conv1D(64, 3, padding='same', activation='relu', kernel_initializer="glorot_uniform", input_shape=(3, 32), data_format="channels_last", name="conv1d_2")
         self.f1 = Flatten(name="flatten_1")
-        self.d1 = Dense(256, activation='relu', kernel_initializer="he_uniform", name="dense_1")
+        self.d1 = Dense(128, activation='relu', kernel_initializer="he_uniform", name="dense_1")
         self.d2 = Dense(64, activation='relu', kernel_initializer="he_uniform", name="dense_2")
-        self.d2 = Dense(16, activation='relu', kernel_initializer="he_uniform", name="dense_3")
-        self.d3 = Dense(n_output, activation=None, kernel_initializer="he_uniform", name="dense_4")
+        self.d3 = Dense(64, activation='relu', kernel_initializer="he_uniform", name="dense_3")
+        self.d4 = Dense(n_output, activation=None, kernel_initializer="he_uniform", name="dense_4")
 
     @tf.function(experimental_compile=True)
     def call(self, x):
         y = self.c1(x)
-        y = self.c2(x)
+        y = self.c2(y)
         y = self.f1(y)
         y = self.d1(y)
         y = self.d2(y)
         y = self.d3(y)
+        y = self.d4(y)
         return y
 
 class DQN():
@@ -293,10 +294,12 @@ class Agentv1():
             act = tf.transpose(act)
             if single_input_flag:
                 act = act[0]
+            if not keep_tensor:
+                act = act.numpy()
         else:
-            raise NotImplementedError("Currently only implemented for DQN")
-        if not keep_tensor:
-            act = act.numpy()
+            act = self.model.argmax_qvalue(belief)
+            if not keep_tensor:
+                act = int(act)
         return act
 
     def qvalues(self, s):
