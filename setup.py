@@ -8,14 +8,13 @@ install_requires = [
     "matplotlib>=3.2.1",
     "numpy>=1.18.2",
     "pandas>=1.0.3",
-    "h5py>=3.1.0",
     "tqdm>=4.45.0",
     "tensorflow>=2.3.1",
 ]
 
 setup(
     name="drling",
-    version="0.0.6",
+    version="0.0.7",
     description="Deep reinforcement learning algorithms for Researcher's LearnING",
     scripts=glob.glob("scripts/drling_*.py"),
     author_email="david.dominguez@iit.comillas.edu",

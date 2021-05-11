@@ -155,8 +155,10 @@ class DQN():
             nn = NNv0(n_output, hidden_layers=config['model']['hidden_layers'], name=name) # Custom
         elif H > 2:
             nn = NNv3(n_output, name=name) # With conv but less params
+            print("LOAD NNv3")
         elif H == 1 or H is None:
             nn = NNv1(n_output, name=name) # Without conv
+            print("LOAD NNv1")
         else:
             raise Exception("Neural Network incompatible")
         if __debug__:
@@ -241,6 +243,8 @@ class Agentv1():
         self.percentage_to_update_init = 1.1
         self.percentage_to_update = self.percentage_to_update_init
         self.percentage_to_update_target = 1
+        self.importance_sampling = False
+        self.importance_ratio = 0.40
         self.actual_loss = 1.0
         self.update_msg = "" # For debugging purposes
         self.update_flag = False # For debugging purposes
@@ -299,7 +303,10 @@ class Agentv1():
         else:
             act = self.model.argmax_qvalue(belief)
             if not keep_tensor:
-                act = int(act)
+                if single_input_flag:
+                    act = int(act)
+                else:
+                    act = act.numpy()
         return act
 
     def qvalues(self, s):
@@ -355,8 +362,29 @@ class Agentv1():
         done_tensor = tf.convert_to_tensor(done_list, dtype=tf.float32)
         return hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor
 
+    def importance_sampling_experiences(self, experience_list):
+        important_experiences = list()
+        hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor = self._convert_experience_list_to_tensor(experience_list)
+        mask = tf.cast(self(hstate_tensor, keep_tensor=True), tf.int32) == action_tensor
+        important_experiences = [x for m, x in zip(mask, experience_list) if m]
+        # for experience in experience_list:
+        #     hstate, action, reward, next_hstate, done = experience
+        #     if self(hstate) == action:
+        #         important_experiences.append(experience)
+        # print("{} important experiences from {} in total ({:02.1f}%)".format(len(important_experiences), len(experience_list), len(important_experiences)/len(experience_list)*100))
+        return important_experiences
+
     def train_step(self):
-        experience_list = self.memory.sample(self.batch_size)
+        if self.importance_sampling:
+            n_importance_samples = int(self.importance_ratio * self.batch_size)
+            importance_experience_list = []
+            while len(importance_experience_list) < n_importance_samples:
+                importance_experience_list.extend(self.importance_sampling_experiences(self.memory.sample(self.batch_size)))
+            importance_experience_list = importance_experience_list[:n_importance_samples]
+            experience_list = importance_experience_list + self.memory.sample(self.batch_size-n_importance_samples)
+        else:
+            experience_list = self.memory.sample(self.batch_size)
+
         hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor = self._convert_experience_list_to_tensor(experience_list)
         self.tf_train_step(hstate_tensor, action_tensor, reward_tensor, next_hstate_tensor, done_tensor)
         loss = self.model.train_loss.result().numpy()
